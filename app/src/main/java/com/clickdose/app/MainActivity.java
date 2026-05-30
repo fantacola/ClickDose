@@ -1,4 +1,4 @@
-package com.example.wegovycounter;
+package com.clickdose.app;
 
 import android.Manifest;
 import android.app.*;
