@@ -291,7 +291,9 @@ public class MainActivity extends Activity {
         if (mode == Mode.MEASURE_FULL && count > 10) {
             fullClickDoses = count;
             remainingClicks = Math.min(remainingClicks, fullClickDoses * dosesPerPen);
-            recomputeTarget(); savePrefs();
+            recomputeTarget();
+            logEvent("MEASURE", fullClickDoses + " clicks · " + String.format(Locale.US, "%.2f mg", strengthMg));
+            savePrefs();
             mode = Mode.IDLE; stopAudio(); buildHomeUi(); refreshUi(); return;
         }
         mode = Mode.IDLE; stopAudio(); buildHomeUi(); refreshUi();
@@ -410,8 +412,10 @@ public class MainActivity extends Activity {
 
         activate.setOnClickListener(v -> {
             if (selectedMg[0] < 0) return;
+            double oldMg = targetMg;
             targetMg = selectedMg[0];
             recomputeTarget(); savePrefs(); refreshUi();
+            logEvent("PLAN", String.format(Locale.US, "%.2f mg -> %.2f mg (%d clicks)", oldMg, targetMg, targetClicks));
             // Update alle Zeilen: Haken zum neuen Plan, alten entfernen
             for (int i = 0; i < list.getChildCount(); i++) {
                 View child = list.getChildAt(i);
@@ -453,7 +457,10 @@ public class MainActivity extends Activity {
                 if (row.trim().isEmpty()) continue;
                 String[] parts = row.split("\\|");
                 String display;
-                if (parts.length >= 8) {
+                if (parts.length >= 4 && "EVENT".equals(parts[2])) {
+                    String icon = "PLAN".equals(parts[3]) ? "↗" : "NEW_PEN".equals(parts[3]) ? "💉" : "CALIB".equals(parts[3]) ? "🎯" : "📏";
+                    display = parts[0] + "  " + parts[1] + "\n" + icon + "  " + tr("event_" + parts[3].toLowerCase()) + ": " + (parts.length > 4 ? parts[4] : "");
+                } else if (parts.length >= 8) {
                     display = parts[0] + "  " + parts[1] + "\n" + parts[2] + " " + tr("clicks") + " · " + parts[3] + " mg · " + tr("rest") + ": " + parts[4] + "\n" + tr("plan") + ": " + parts[6] + " " + tr("clicks") + " · " + parts[7] + " mg";
                 } else if (parts.length >= 6) {
                     display = parts[0] + "  " + parts[1] + "\n" + parts[2] + " " + tr("clicks") + " · " + parts[3] + " mg · " + tr("rest") + ": " + parts[4];
@@ -495,11 +502,13 @@ public class MainActivity extends Activity {
                 .setPositiveButton(tr("measure_now"), (d, w) -> {
                     remainingClicks = fullClickDoses * dosesPerPen;
                     savePrefs(); refreshUi();
+                    logEvent("NEW_PEN", fullClickDoses * dosesPerPen + " clicks (measuring)");
                     startFullDoseMeasureFullscreen();
                 })
                 .setNeutralButton(tr("use_saved"), (d, w) -> {
                     remainingClicks = fullClickDoses * dosesPerPen;
                     savePrefs(); refreshUi();
+                    logEvent("NEW_PEN", fullClickDoses * dosesPerPen + " clicks");
                     Toast.makeText(this, String.format(tr("new_pen_set_toast"), fullClickDoses * dosesPerPen), Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton(tr("cancel"), null)
@@ -583,6 +592,13 @@ public class MainActivity extends Activity {
         count = 0; targetReachedBuzzed=false; mode=Mode.IDLE; stopAudio(); savePrefs();
     }
 
+    private void logEvent(String type, String detail) {
+        java.text.SimpleDateFormat df = new java.text.SimpleDateFormat("yyyy-MM-dd|HH:mm", Locale.getDefault());
+        String stamp = df.format(new java.util.Date());
+        injectionHistory = (injectionHistory == null ? "" : injectionHistory) + stamp + "|EVENT|" + type + "|" + detail + "\n";
+        savePrefs();
+    }
+
     private boolean ensurePermission(){ if(Build.VERSION.SDK_INT>=23 && checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){ requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},REQ_AUDIO); return false;} return true; }
     private void startAudioIfNeeded(){ if(audioActive)return; audioActive=true; audioThread=new Thread(this::audioLoop,"ClickDoseAudio"); audioThread.start(); }
     private void stopAudio(){ audioActive=false; uiHandler.removeCallbacks(measureDoneRunnable); }
@@ -594,7 +610,9 @@ public class MainActivity extends Activity {
     private void finishCalibration(){
         if(!clickCalibrationPeaks.isEmpty()) calibratedClickPeak=median(clickCalibrationPeaks);
         if(clickCalibrationTimes.size()>=2){ ArrayList<Double> gaps=new ArrayList<>(); for(int i=1;i<clickCalibrationTimes.size();i++)gaps.add((clickCalibrationTimes.get(i)-clickCalibrationTimes.get(i-1))/1_000_000.0); double gap=median(gaps); cooldownMs=(int)Math.max(55,Math.min(130,gap*0.45)); } else cooldownMs=80;
-        recomputeThreshold(); mode=Mode.IDLE; savePrefs();
+        recomputeThreshold(); mode=Mode.IDLE;
+        logEvent("CALIB", String.format(Locale.US, "%d clicks · peak %.0f · cooldown %d ms", clickCalibrationPeaks.size(), calibratedClickPeak, cooldownMs));
+        savePrefs();
         runOnUiThread(() -> { buildHomeUi(); refreshUi(); Toast.makeText(this, String.format(tr("calibrated_toast"), clickCalibrationPeaks.size()), Toast.LENGTH_SHORT).show(); });
     }
 
@@ -727,6 +745,10 @@ public class MainActivity extends Activity {
                 case "profile_setup_hint": return "Enter your pen's full dose and click count.";
                 case "next_choose_plan": return "Next: choose plan →";
                 case "done": return "Done";
+                case "event_plan": return "Plan changed";
+                case "event_new_pen": return "New pen";
+                case "event_calib": return "Calibrated";
+                case "event_measure": return "Full dose measured";
             }
         } else {
             switch (key) {
@@ -805,6 +827,10 @@ public class MainActivity extends Activity {
                 case "profile_setup_hint": return "Gib die Volldosis und Klickzahl deines Pens ein.";
                 case "next_choose_plan": return "Weiter: Plan wählen →";
                 case "done": return "Fertig";
+                case "event_plan": return "Plan geändert";
+                case "event_new_pen": return "Neuer Pen";
+                case "event_calib": return "Kalibriert";
+                case "event_measure": return "Volldosis gemessen";
             }
         }
         return key;
