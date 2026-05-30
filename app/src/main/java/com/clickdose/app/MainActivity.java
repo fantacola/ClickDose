@@ -91,6 +91,9 @@ public class MainActivity extends Activity {
         LinearLayout box = dialogBox();
         box.addView(text(tr("onboarding_title"), 26, ink, true));
         box.addView(text(tr("onboarding_msg"), 15, muted, false));
+        TextView disclaimer = text(tr("onboarding_disclaimer"), 12, warn, false);
+        disclaimer.setPadding(0, dp(12), 0, 0);
+        box.addView(disclaimer);
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
             .setView(box)
             .setCancelable(false)
@@ -119,7 +122,12 @@ public class MainActivity extends Activity {
                 remainingClicks = fullClickDoses * dosesPerPen;
                 targetMg = strengthMg;
                 recomputeTarget(); savePrefs(); buildHomeUi(); refreshUi();
-                showPlannerDialog();
+                new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+                    .setTitle(tr("calibrate_prompt_title"))
+                    .setMessage(tr("calibrate_prompt_msg"))
+                    .setPositiveButton(tr("calibrate"), (d2, w2) -> startCalibrationFullscreen())
+                    .setNegativeButton(tr("skip_for_now"), (d2, w2) -> showPlannerDialog())
+                    .show();
             })
             .show();
     }
@@ -192,9 +200,7 @@ public class MainActivity extends Activity {
         stats.addView(rightStatView, new LinearLayout.LayoutParams(0, dp(72), 1));
         stage.addView(stats, new LinearLayout.LayoutParams(-1, -2));
 
-        statusView = text(tr("ready"), 13, muted, false);
-        statusView.setGravity(Gravity.CENTER);
-        root.addView(statusView, new LinearLayout.LayoutParams(-1, -2));
+        statusView = null;
 
         primaryButton = pillButton("", accent, Color.rgb(4,23,14));
         primaryButton.setTextSize(17);
@@ -538,7 +544,6 @@ public class MainActivity extends Activity {
         Button measure = pillButton(tr("measure_full"), card2, ink); measure.setOnClickListener(v -> startFullDoseMeasureFullscreen()); box.addView(measure, new LinearLayout.LayoutParams(-1, dp(52)));
         Button newPen = pillButton(tr("new_pen"), card2, ink); newPen.setOnClickListener(v -> confirmNewPen()); box.addView(newPen, new LinearLayout.LayoutParams(-1, dp(52)));
         Button lang = pillButton("Language / Sprache", card2, ink); lang.setOnClickListener(v -> showLanguageDialog()); box.addView(lang, new LinearLayout.LayoutParams(-1, dp(52)));
-        TextView dbg = text(String.format(Locale.US,"Peak %.0f · Noise %.1f · Threshold %.0f · Cooldown %d ms", latestPeak, noiseAvgJump, threshold, cooldownMs), 12, muted, false); box.addView(dbg);
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box).setPositiveButton("OK", null).show();
     }
 
@@ -560,16 +565,10 @@ public class MainActivity extends Activity {
             doseRing.segments = Math.max(8, Math.min(96, fullClickDoses));
             doseRing.invalidate();
             leftStatView.setText(String.format(Locale.US, tr("rest_stat_fmt"), remainingClicks, total));
-            rightStatView.setText(String.format(Locale.US, tr("today_stat_fmt"), targetClicks));
+            int dosesLeft = targetClicks > 0 ? remainingClicks / targetClicks : 0;
+            int rem = targetClicks > 0 ? remainingClicks % targetClicks : 0;
+            rightStatView.setText(tr("doses_label") + "\n" + (rem == 0 ? dosesLeft : "~" + dosesLeft));
             primaryButton.setText(String.format(Locale.US, tr("set_clicks_fmt"), targetClicks));
-            if (statusView != null && targetClicks > 0) {
-                int weeksLeft = remainingClicks / targetClicks;
-                int remainder = remainingClicks % targetClicks;
-                String weeksStr = remainder == 0
-                    ? String.format(tr("weeks_left_exact"), weeksLeft)
-                    : String.format(tr("weeks_left_approx"), weeksLeft);
-                statusView.setText(weeksStr);
-            }
         }
 
         if (fullRing != null) {
@@ -778,6 +777,11 @@ public class MainActivity extends Activity {
                 case "clear_history_confirm": return "Delete the entire history? This cannot be undone.";
                 case "weeks_left_exact": return "%d doses remaining";
                 case "weeks_left_approx": return "~%d doses remaining";
+                case "doses_label": return "Doses";
+                case "onboarding_disclaimer": return "⚠ Not a medical device. Always verify your dose visually before injecting.";
+                case "calibrate_prompt_title": return "Calibrate first?";
+                case "calibrate_prompt_msg": return "Calibration helps the app reliably detect your pen's clicks. Recommended before first use.";
+                case "skip_for_now": return "Skip for now";
             }
         } else {
             switch (key) {
@@ -863,6 +867,11 @@ public class MainActivity extends Activity {
                 case "clear_history_confirm": return "Das gesamte Protokoll löschen? Das kann nicht rückgängig gemacht werden.";
                 case "weeks_left_exact": return "%d Dosen verbleibend";
                 case "weeks_left_approx": return "~%d Dosen verbleibend";
+                case "doses_label": return "Dosen";
+                case "onboarding_disclaimer": return "⚠ Kein Medizinprodukt. Überprüfe die Dosis immer visuell bevor du injizierst.";
+                case "calibrate_prompt_title": return "Erst kalibrieren?";
+                case "calibrate_prompt_msg": return "Die Kalibrierung hilft der App, die Klicks deines Pens zuverlässig zu erkennen. Empfohlen vor dem ersten Gebrauch.";
+                case "skip_for_now": return "Jetzt überspringen";
             }
         }
         return key;
