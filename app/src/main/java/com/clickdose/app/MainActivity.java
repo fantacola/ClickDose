@@ -290,43 +290,83 @@ public class MainActivity extends Activity {
     private void showPlannerDialog() {
         int total = fullClickDoses * dosesPerPen;
         double mgPerClick = strengthMg / Math.max(1, fullClickDoses);
-        AlertDialog[] dlgRef = new AlertDialog[1];
-        LinearLayout box = dialogBox(); box.addView(text(tr("planner_title"), 24, ink, true));
+
+        LinearLayout box = dialogBox();
+        box.addView(text(tr("planner_title"), 24, ink, true));
         box.addView(text(tr("planner_hint"), 13, muted, false));
-        for (int weeks=4; weeks<=12; weeks++) {
-            int low = total / weeks; int extra = total % weeks;
+
+        final double[] selectedMg = {-1};
+        final TextView[] selectedRow = {null};
+        final Button[] activateBtn = {null};
+
+        ArrayList<int[]> plans = new ArrayList<>();
+        for (int weeks = 4; weeks <= 12; weeks++) {
+            int low = total / weeks;
             if (low < 1) break;
-            final int clicksLow = low; final int clicksHigh = low + 1; final int extраCount = extra;
+            plans.add(new int[]{weeks, low, total % weeks});
+        }
+
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(0, dp(4), 0, dp(4));
+
+        for (int[] p : plans) {
+            int weeks = p[0]; int low = p[1]; int extra = p[2];
             double avgMg = (total / (double) weeks) * mgPerClick;
-            String plan = extra==0
-                ? String.format(Locale.US, "%d " + tr("weeks") + " · %d " + tr("clicks_per_week") + " · %.2f mg", weeks, low, low*mgPerClick)
-                : String.format(Locale.US, "%d " + tr("weeks") + " · %dx%d + %dx%d " + tr("clicks") + " · Ø %.2f mg", weeks, weeks-extra, low, extra, low+1, avgMg);
-            TextView row = text(plan, 15, ink, false);
-            row.setPadding(dp(12),dp(10),dp(12),dp(10));
-            row.setBackground(round(card2,18));
+            boolean isCurrent = (Math.round(targetMg * 100) == Math.round(avgMg * 100));
+
+            String label = extra == 0
+                ? String.format(Locale.US, "%d " + tr("weeks") + " · %d " + tr("clicks_per_week") + " · %.2f mg", weeks, low, low * mgPerClick)
+                : String.format(Locale.US, "%d " + tr("weeks") + " · %dx%d + %dx%d " + tr("clicks") + " · Ø %.2f mg", weeks, weeks - extra, low, extra, low + 1, avgMg);
+
+            String rowText = (isCurrent ? "✓  " : "     ") + label;
+            TextView row = text(rowText, 15, isCurrent ? Color.rgb(4,23,14) : ink, isCurrent);
+            row.setPadding(dp(14), dp(12), dp(14), dp(12));
+            row.setBackground(round(isCurrent ? accent : card2, 18));
+
+            final double rowMg = avgMg;
             row.setClickable(true);
             row.setOnClickListener(v -> {
-                if (dlgRef[0] != null) dlgRef[0].dismiss();
-                double newMg = avgMg;
-                String confirm = String.format(tr("plan_confirm_msg"), clicksLow, newMg);
-                new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
-                    .setTitle(tr("plan_confirm_title"))
-                    .setMessage(confirm)
-                    .setPositiveButton(tr("activate_plan"), (d2, w2) -> {
-                        targetMg = newMg;
-                        recomputeTarget();
-                        savePrefs();
-                        refreshUi();
-                        Toast.makeText(this, String.format(tr("plan_activated_toast"), targetClicks), Toast.LENGTH_SHORT).show();
-                    })
-                    .setNegativeButton(tr("cancel"), null)
-                    .show();
+                if (isCurrent) return;
+                if (selectedRow[0] != null) selectedRow[0].setBackground(round(card2, 18));
+                if (selectedRow[0] != null) selectedRow[0].setTextColor(ink);
+                row.setBackground(round(blue, 18));
+                row.setTextColor(Color.rgb(9, 9, 11));
+                selectedRow[0] = row;
+                selectedMg[0] = rowMg;
+                if (activateBtn[0] != null) {
+                    activateBtn[0].setEnabled(true);
+                    activateBtn[0].setBackground(round(accent, 28));
+                    activateBtn[0].setTextColor(Color.rgb(4, 23, 14));
+                }
             });
-            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, dp(54)); rlp.setMargins(0, dp(6), 0, 0); box.addView(row, rlp);
+
+            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, -2);
+            rlp.setMargins(0, dp(6), 0, 0);
+            list.addView(row, rlp);
         }
-        AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box).setNegativeButton(tr("cancel"), null).create();
-        dlgRef[0] = dlg;
-        dlg.show();
+
+        scroll.addView(list);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, dp(320));
+        slp.setMargins(0, dp(10), 0, dp(10));
+        box.addView(scroll, slp);
+
+        Button activate = pillButton(tr("activate_plan"), track, muted);
+        activate.setEnabled(false);
+        activate.setOnClickListener(v -> {
+            if (selectedMg[0] < 0) return;
+            targetMg = selectedMg[0];
+            recomputeTarget(); savePrefs(); refreshUi();
+            Toast.makeText(this, String.format(tr("plan_activated_toast"), targetClicks), Toast.LENGTH_SHORT).show();
+        });
+        activateBtn[0] = activate;
+        box.addView(activate, new LinearLayout.LayoutParams(-1, dp(52)));
+
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+            .setView(box)
+            .setNegativeButton(tr("cancel"), null)
+            .show();
     }
 
 
