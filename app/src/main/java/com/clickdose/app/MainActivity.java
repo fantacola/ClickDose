@@ -115,6 +115,7 @@ public class MainActivity extends Activity {
                 dosesPerPen = Math.max(1, readInt(doses, dosesPerPen));
                 fullClickDoses = Math.max(1, readInt(full, fullClickDoses));
                 remainingClicks = fullClickDoses * dosesPerPen;
+                targetMg = strengthMg;
                 recomputeTarget(); savePrefs(); buildHomeUi(); refreshUi();
                 showPlannerDialog();
             })
