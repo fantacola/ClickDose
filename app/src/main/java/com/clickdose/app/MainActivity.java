@@ -24,13 +24,7 @@ public class MainActivity extends Activity {
     private volatile Mode mode = Mode.IDLE;
     private Thread audioThread;
     private final android.os.Handler uiHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    private final Runnable measureDoneRunnable = () -> {
-        if (mode == Mode.MEASURE_FULL && count > 0 && fullPrimaryButton != null) {
-            fullPrimaryButton.setBackground(round(accent, 28));
-            fullPrimaryButton.setTextColor(Color.rgb(4, 23, 14));
-            fullPrimaryButton.setText(tr("done"));
-        }
-    };
+    private final Runnable measureDoneRunnable = this::onMeasurePause;
 
     private int count = 0;
     private long lastClickNs = 0;
@@ -571,6 +565,7 @@ public class MainActivity extends Activity {
     private boolean ensurePermission(){ if(Build.VERSION.SDK_INT>=23 && checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){ requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},REQ_AUDIO); return false;} return true; }
     private void startAudioIfNeeded(){ if(audioActive)return; audioActive=true; audioThread=new Thread(this::audioLoop,"ClickDoseAudio"); audioThread.start(); }
     private void stopAudio(){ audioActive=false; uiHandler.removeCallbacks(measureDoneRunnable); }
+    private void onMeasurePause(){ if(mode==Mode.MEASURE_FULL&&count>0&&fullPrimaryButton!=null){ fullPrimaryButton.setBackground(round(accent,28)); fullPrimaryButton.setTextColor(Color.rgb(4,23,14)); fullPrimaryButton.setText(tr("done")); } }
     private void recomputeTarget(){ targetClicks=(int)Math.round(fullClickDoses*targetMg/Math.max(0.001,strengthMg)); if(targetClicks<1)targetClicks=1; }
     private void recomputeThreshold(){ threshold=Math.max(calibratedClickPeak*thresholdFactor, noiseAvgJump*9.0+450.0); }
     private double median(ArrayList<Double> v){ if(v.isEmpty())return 0; ArrayList<Double> c=new ArrayList<>(v); Collections.sort(c); return c.get(c.size()/2); }
