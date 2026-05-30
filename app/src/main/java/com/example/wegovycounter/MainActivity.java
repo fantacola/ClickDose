@@ -45,6 +45,7 @@ public class MainActivity extends Activity {
     private int targetClicks = 37;
     private boolean targetReachedBuzzed = false;
     private String language = "de";
+    private String penName = "";
     private String injectionHistory = "";
 
     private final int bg = Color.rgb(9,9,11);
@@ -93,7 +94,7 @@ public class MainActivity extends Activity {
         titleBox.setOrientation(LinearLayout.VERTICAL);
         TextView title = text("ClickDose", 29, ink, true);
         title.setIncludeFontPadding(false);
-        TextView sub = text("Wegovy 2.4", 14, muted, false);
+        TextView sub = text(penName.isEmpty() ? tr("my_pen") : penName, 14, muted, false);
         titleBox.addView(title);
         titleBox.addView(sub);
         top.addView(titleBox, new LinearLayout.LayoutParams(0, -2, 1));
@@ -273,13 +274,14 @@ public class MainActivity extends Activity {
 
     private void showProfileDialog() {
         LinearLayout box = dialogBox(); box.addView(text(tr("profile_title"), 24, ink, true));
+        EditText name = inputText(penName.isEmpty() ? tr("my_pen") : penName, tr("pen_name_hint"));
         EditText strength = input(String.valueOf(strengthMg), tr("full_dose_hint"));
         EditText doses = input(String.valueOf(dosesPerPen), tr("doses_per_pen"));
         EditText full = input(String.valueOf(fullClickDoses), tr("clicks_per_dose"));
         EditText rest = input(String.valueOf(remainingClicks), tr("remaining_hint"));
-        box.addView(labelled(tr("full_dose_label"), strength)); box.addView(labelled(tr("doses_per_pen"), doses)); box.addView(labelled(tr("clicks_per_dose"), full)); box.addView(labelled(tr("current_rest"), rest));
+        box.addView(labelled(tr("pen_name_label"), name)); box.addView(labelled(tr("full_dose_label"), strength)); box.addView(labelled(tr("doses_per_pen"), doses)); box.addView(labelled(tr("clicks_per_dose"), full)); box.addView(labelled(tr("current_rest"), rest));
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box)
-                .setPositiveButton(tr("save"), (d,w)->{ strengthMg=readDouble(strength,strengthMg); dosesPerPen=Math.max(1,readInt(doses,dosesPerPen)); fullClickDoses=Math.max(1,readInt(full,fullClickDoses)); int max=fullClickDoses*dosesPerPen; remainingClicks=Math.max(0,Math.min(max,readInt(rest,remainingClicks))); recomputeTarget(); savePrefs(); refreshUi(); })
+                .setPositiveButton(tr("save"), (d,w)->{ penName=name.getText().toString().trim(); strengthMg=readDouble(strength,strengthMg); dosesPerPen=Math.max(1,readInt(doses,dosesPerPen)); fullClickDoses=Math.max(1,readInt(full,fullClickDoses)); int max=fullClickDoses*dosesPerPen; remainingClicks=Math.max(0,Math.min(max,readInt(rest,remainingClicks))); recomputeTarget(); savePrefs(); refreshUi(); buildHomeUi(); refreshUi(); })
                 .setNegativeButton(tr("cancel"), null).show();
     }
 
@@ -493,6 +495,7 @@ public class MainActivity extends Activity {
     private LinearLayout dialogBox(){ LinearLayout b=new LinearLayout(this); b.setOrientation(LinearLayout.VERTICAL); b.setPadding(dp(22),dp(18),dp(22),dp(8)); b.setBackgroundColor(bg); return b; }
     private LinearLayout labelled(String label, EditText input){ LinearLayout l=new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); TextView tv=text(label,12,muted,true); l.addView(tv); l.addView(input); return l; }
     private EditText input(String value,String hint){ EditText e=new EditText(this); e.setText(value); e.setHint(hint); e.setTextColor(ink); e.setHintTextColor(muted); e.setSingleLine(true); e.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL); return e; }
+    private EditText inputText(String value,String hint){ EditText e=new EditText(this); e.setText(value); e.setHint(hint); e.setTextColor(ink); e.setHintTextColor(muted); e.setSingleLine(true); e.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_CAP_SENTENCES); return e; }
     private int bottomInsetPx(){
         if (Build.VERSION.SDK_INT >= 23) {
             WindowInsets insets = getWindow().getDecorView().getRootWindowInsets();
@@ -571,6 +574,9 @@ public class MainActivity extends Activity {
                 case "measure_now": return "Measure now";
                 case "use_saved": return "Use saved value";
                 case "new_pen_set_toast": return "New pen set: %d clicks";
+                case "pen_name_label": return "Pen name";
+                case "pen_name_hint": return "e.g. My Pen";
+                case "my_pen": return "My Pen";
             }
         } else {
             switch (key) {
@@ -633,6 +639,9 @@ public class MainActivity extends Activity {
                 case "measure_now": return "Jetzt messen";
                 case "use_saved": return "Gespeicherten Wert nutzen";
                 case "new_pen_set_toast": return "Neuer Pen gesetzt: %d Klicks";
+                case "pen_name_label": return "Pen-Name";
+                case "pen_name_hint": return "z.B. Mein Pen";
+                case "my_pen": return "Mein Pen";
             }
         }
         return key;
@@ -640,8 +649,8 @@ public class MainActivity extends Activity {
 
     private double readDouble(EditText e,double f){ try{return Double.parseDouble(e.getText().toString().replace(',','.'));}catch(Exception x){return f;} }
     private int readInt(EditText e,int f){ try{return (int)Math.round(Double.parseDouble(e.getText().toString().replace(',','.')));}catch(Exception x){return f;} }
-    private void loadPrefs(){ SharedPreferences p=getSharedPreferences(PREF,MODE_PRIVATE); strengthMg=Double.longBitsToDouble(p.getLong("strength",Double.doubleToLongBits(2.4))); dosesPerPen=p.getInt("doses",4); fullClickDoses=p.getInt("fullClicks",74); remainingClicks=p.getInt("remaining",fullClickDoses*dosesPerPen); targetMg=Double.longBitsToDouble(p.getLong("target",Double.doubleToLongBits(1.2))); thresholdFactor=Double.longBitsToDouble(p.getLong("factor",Double.doubleToLongBits(0.38))); noiseAvgJump=Double.longBitsToDouble(p.getLong("noise",Double.doubleToLongBits(180.0))); calibratedClickPeak=Double.longBitsToDouble(p.getLong("clickPeak",Double.doubleToLongBits(2600.0))); cooldownMs=p.getInt("cooldown",80); language=p.getString("language","de"); injectionHistory=p.getString("history",""); }
-    private void savePrefs(){ getSharedPreferences(PREF,MODE_PRIVATE).edit().putLong("strength",Double.doubleToLongBits(strengthMg)).putInt("doses",dosesPerPen).putInt("fullClicks",fullClickDoses).putInt("remaining",remainingClicks).putLong("target",Double.doubleToLongBits(targetMg)).putLong("factor",Double.doubleToLongBits(thresholdFactor)).putLong("noise",Double.doubleToLongBits(noiseAvgJump)).putLong("clickPeak",Double.doubleToLongBits(calibratedClickPeak)).putInt("cooldown",cooldownMs).putString("language",language).putString("history",injectionHistory).apply(); }
+    private void loadPrefs(){ SharedPreferences p=getSharedPreferences(PREF,MODE_PRIVATE); strengthMg=Double.longBitsToDouble(p.getLong("strength",Double.doubleToLongBits(2.4))); dosesPerPen=p.getInt("doses",4); fullClickDoses=p.getInt("fullClicks",74); remainingClicks=p.getInt("remaining",fullClickDoses*dosesPerPen); targetMg=Double.longBitsToDouble(p.getLong("target",Double.doubleToLongBits(1.2))); thresholdFactor=Double.longBitsToDouble(p.getLong("factor",Double.doubleToLongBits(0.38))); noiseAvgJump=Double.longBitsToDouble(p.getLong("noise",Double.doubleToLongBits(180.0))); calibratedClickPeak=Double.longBitsToDouble(p.getLong("clickPeak",Double.doubleToLongBits(2600.0))); cooldownMs=p.getInt("cooldown",80); language=p.getString("language","de"); penName=p.getString("penName",""); injectionHistory=p.getString("history",""); }
+    private void savePrefs(){ getSharedPreferences(PREF,MODE_PRIVATE).edit().putLong("strength",Double.doubleToLongBits(strengthMg)).putInt("doses",dosesPerPen).putInt("fullClicks",fullClickDoses).putInt("remaining",remainingClicks).putLong("target",Double.doubleToLongBits(targetMg)).putLong("factor",Double.doubleToLongBits(thresholdFactor)).putLong("noise",Double.doubleToLongBits(noiseAvgJump)).putLong("clickPeak",Double.doubleToLongBits(calibratedClickPeak)).putInt("cooldown",cooldownMs).putString("language",language).putString("penName",penName).putString("history",injectionHistory).apply(); }
     @Override protected void onDestroy(){ audioActive=false; super.onDestroy(); }
 
     public class SegmentedRingView extends View {
