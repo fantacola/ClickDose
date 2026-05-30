@@ -279,7 +279,9 @@ public class MainActivity extends Activity {
         EditText doses = input(String.valueOf(dosesPerPen), tr("doses_per_pen"));
         EditText full = input(String.valueOf(fullClickDoses), tr("clicks_per_dose"));
         EditText rest = input(String.valueOf(remainingClicks), tr("remaining_hint"));
-        box.addView(labelled(tr("pen_name_label"), name)); box.addView(labelled(tr("full_dose_label"), strength)); box.addView(labelled(tr("doses_per_pen"), doses)); box.addView(labelled(tr("clicks_per_dose"), full)); box.addView(labelled(tr("current_rest"), rest));
+        TextView restWarning = text(tr("rest_change_warning"), 12, warn, false);
+        box.addView(labelled(tr("pen_name_label"), name)); box.addView(labelled(tr("full_dose_label"), strength)); box.addView(labelled(tr("doses_per_pen"), doses)); box.addView(labelled(tr("clicks_per_dose"), full));
+        box.addView(labelled(tr("current_rest"), rest)); box.addView(restWarning);
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box)
                 .setPositiveButton(tr("save"), (d,w)->{ penName=name.getText().toString().trim(); strengthMg=readDouble(strength,strengthMg); dosesPerPen=Math.max(1,readInt(doses,dosesPerPen)); fullClickDoses=Math.max(1,readInt(full,fullClickDoses)); int max=fullClickDoses*dosesPerPen; remainingClicks=Math.max(0,Math.min(max,readInt(rest,remainingClicks))); recomputeTarget(); savePrefs(); refreshUi(); buildHomeUi(); refreshUi(); })
                 .setNegativeButton(tr("cancel"), null).show();
@@ -288,17 +290,43 @@ public class MainActivity extends Activity {
     private void showPlannerDialog() {
         int total = fullClickDoses * dosesPerPen;
         double mgPerClick = strengthMg / Math.max(1, fullClickDoses);
+        AlertDialog[] dlgRef = new AlertDialog[1];
         LinearLayout box = dialogBox(); box.addView(text(tr("planner_title"), 24, ink, true));
         box.addView(text(tr("planner_hint"), 13, muted, false));
-        int base = remainingClicks > 0 ? remainingClicks : total;
         for (int weeks=4; weeks<=12; weeks++) {
-            int low = base / weeks; int extra = base % weeks;
+            int low = total / weeks; int extra = total % weeks;
             if (low < 1) break;
-            String plan = extra==0 ? String.format(Locale.US, "%d " + tr("weeks") + " · %d " + tr("clicks_per_week") + " · %.2f mg", weeks, low, low*mgPerClick) : String.format(Locale.US, "%d " + tr("weeks") + " · %dx%d + %dx%d " + tr("clicks") + " · Ø %.2f mg", weeks, weeks-extra, low, extra, low+1, (base/(double)weeks)*mgPerClick);
-            TextView row = text(plan, 15, ink, false); row.setPadding(dp(12),dp(10),dp(12),dp(10)); row.setBackground(round(card2,18));
+            final int clicksLow = low; final int clicksHigh = low + 1; final int extраCount = extra;
+            double avgMg = (total / (double) weeks) * mgPerClick;
+            String plan = extra==0
+                ? String.format(Locale.US, "%d " + tr("weeks") + " · %d " + tr("clicks_per_week") + " · %.2f mg", weeks, low, low*mgPerClick)
+                : String.format(Locale.US, "%d " + tr("weeks") + " · %dx%d + %dx%d " + tr("clicks") + " · Ø %.2f mg", weeks, weeks-extra, low, extra, low+1, avgMg);
+            TextView row = text(plan, 15, ink, false);
+            row.setPadding(dp(12),dp(10),dp(12),dp(10));
+            row.setBackground(round(card2,18));
+            row.setClickable(true);
+            row.setOnClickListener(v -> {
+                if (dlgRef[0] != null) dlgRef[0].dismiss();
+                double newMg = avgMg;
+                String confirm = String.format(tr("plan_confirm_msg"), clicksLow, newMg);
+                new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+                    .setTitle(tr("plan_confirm_title"))
+                    .setMessage(confirm)
+                    .setPositiveButton(tr("activate_plan"), (d2, w2) -> {
+                        targetMg = newMg;
+                        recomputeTarget();
+                        savePrefs();
+                        refreshUi();
+                        Toast.makeText(this, String.format(tr("plan_activated_toast"), targetClicks), Toast.LENGTH_SHORT).show();
+                    })
+                    .setNegativeButton(tr("cancel"), null)
+                    .show();
+            });
             LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, dp(54)); rlp.setMargins(0, dp(6), 0, 0); box.addView(row, rlp);
         }
-        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box).setPositiveButton("OK", null).show();
+        AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box).setNegativeButton(tr("cancel"), null).create();
+        dlgRef[0] = dlg;
+        dlg.show();
     }
 
 
@@ -318,8 +346,10 @@ public class MainActivity extends Activity {
                 if (row.trim().isEmpty()) continue;
                 String[] parts = row.split("\\|");
                 String display;
-                if (parts.length >= 6) {
-                    display = parts[0] + "  " + parts[1] + "\n" + parts[2] + " " + tr("clicks") + " · " + parts[3] + " mg · " + tr("rest") + ": " + parts[5];
+                if (parts.length >= 8) {
+                    display = parts[0] + "  " + parts[1] + "\n" + parts[2] + " " + tr("clicks") + " · " + parts[3] + " mg · " + tr("rest") + ": " + parts[4] + "\n" + tr("plan") + ": " + parts[6] + " " + tr("clicks") + " · " + parts[7] + " mg";
+                } else if (parts.length >= 6) {
+                    display = parts[0] + "  " + parts[1] + "\n" + parts[2] + " " + tr("clicks") + " · " + parts[3] + " mg · " + tr("rest") + ": " + parts[4];
                 } else display = row;
                 TextView tv = text(display, 15, ink, true);
                 tv.setPadding(dp(14), dp(10), dp(14), dp(10));
@@ -442,7 +472,7 @@ public class MainActivity extends Activity {
         int restAfter = Math.max(0, remainingClicks - used);
         java.text.SimpleDateFormat df = new java.text.SimpleDateFormat("yyyy-MM-dd|HH:mm", Locale.getDefault());
         String stamp = df.format(new java.util.Date());
-        injectionHistory = (injectionHistory == null ? "" : injectionHistory) + stamp + "|" + used + "|" + String.format(Locale.US, "%.2f", mg) + "|" + (fullClickDoses*dosesPerPen) + "|" + restAfter + "\n";
+        injectionHistory = (injectionHistory == null ? "" : injectionHistory) + stamp + "|" + used + "|" + String.format(Locale.US, "%.2f", mg) + "|" + (fullClickDoses*dosesPerPen) + "|" + restAfter + "|" + targetClicks + "|" + String.format(Locale.US, "%.2f", targetMg) + "\n";
         remainingClicks = restAfter;
         count = 0; targetReachedBuzzed=false; mode=Mode.IDLE; stopAudio(); savePrefs();
     }
@@ -577,6 +607,12 @@ public class MainActivity extends Activity {
                 case "pen_name_label": return "Pen name";
                 case "pen_name_hint": return "e.g. My Pen";
                 case "my_pen": return "My Pen";
+                case "plan_confirm_title": return "Activate plan?";
+                case "plan_confirm_msg": return "Set target to %d clicks · %.2f mg per dose?\nThis takes effect from the next dose.";
+                case "activate_plan": return "Activate";
+                case "plan_activated_toast": return "Plan activated: %d clicks per dose";
+                case "rest_change_warning": return "⚠ Only change this if you are correcting an error.";
+                case "plan": return "Plan";
             }
         } else {
             switch (key) {
@@ -642,6 +678,12 @@ public class MainActivity extends Activity {
                 case "pen_name_label": return "Pen-Name";
                 case "pen_name_hint": return "z.B. Mein Pen";
                 case "my_pen": return "Mein Pen";
+                case "plan_confirm_title": return "Plan aktivieren?";
+                case "plan_confirm_msg": return "Ziel auf %d Klicks · %.2f mg pro Dosis setzen?\nGilt ab der nächsten Dosis.";
+                case "activate_plan": return "Aktivieren";
+                case "plan_activated_toast": return "Plan aktiviert: %d Klicks pro Dosis";
+                case "rest_change_warning": return "⚠ Nur ändern wenn du einen Fehler korrigierst.";
+                case "plan": return "Plan";
             }
         }
         return key;
