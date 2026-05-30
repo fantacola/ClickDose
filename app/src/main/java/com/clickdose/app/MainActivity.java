@@ -457,8 +457,9 @@ public class MainActivity extends Activity {
                 String row = rows[i];
                 if (row.trim().isEmpty()) continue;
                 String[] parts = row.split("\\|");
-                String display;
+                String display; boolean isEvent = false;
                 if (parts.length >= 4 && "EVENT".equals(parts[2])) {
+                    isEvent = true;
                     String icon = "PLAN".equals(parts[3]) ? "↗" : "NEW_PEN".equals(parts[3]) ? "💉" : "CALIB".equals(parts[3]) ? "🎯" : "📏";
                     display = parts[0] + "  " + parts[1] + "\n" + icon + "  " + tr("event_" + parts[3].toLowerCase()) + ": " + (parts.length > 4 ? parts[4] : "");
                 } else if (parts.length >= 8) {
@@ -466,18 +467,34 @@ public class MainActivity extends Activity {
                 } else if (parts.length >= 6) {
                     display = parts[0] + "  " + parts[1] + "\n" + parts[2] + " " + tr("clicks") + " · " + parts[3] + " mg · " + tr("rest") + ": " + parts[4];
                 } else display = row;
-                TextView tv = text(display, 15, ink, true);
+                TextView tv = new TextView(this);
+                tv.setText(display);
+                tv.setTextSize(13);
+                tv.setTextColor(isEvent ? muted : ink);
+                tv.setTypeface(null, isEvent ? android.graphics.Typeface.NORMAL : android.graphics.Typeface.BOLD);
                 tv.setPadding(dp(14), dp(10), dp(14), dp(10));
-                tv.setBackground(round(card2, 18));
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(66));
-                lp.setMargins(0, dp(8), 0, 0);
+                tv.setBackground(round(isEvent ? bg : card2, 18));
+                if (isEvent) {
+                    GradientDrawable border = new GradientDrawable();
+                    border.setColor(bg); border.setCornerRadius(dp(18));
+                    border.setStroke(dp(1), Color.rgb(50,50,55));
+                    tv.setBackground(border);
+                }
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+                lp.setMargins(0, dp(6), 0, 0);
                 box.addView(tv, lp);
                 shown++;
             }
         }
-        Button clear = pillButton(tr("clear_history"), card2, ink);
-        clear.setOnClickListener(v -> { injectionHistory = ""; savePrefs(); Toast.makeText(this, tr("history_cleared"), Toast.LENGTH_SHORT).show(); });
-        box.addView(clear, new LinearLayout.LayoutParams(-1, dp(52)));
+        Button clear = pillButton(tr("clear_history"), Color.rgb(50,20,20), Color.rgb(200,80,80));
+        clear.setTextSize(13);
+        clear.setOnClickListener(v -> new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+            .setMessage(tr("clear_history_confirm"))
+            .setPositiveButton(tr("clear_history"), (d,w) -> { injectionHistory = ""; savePrefs(); Toast.makeText(this, tr("history_cleared"), Toast.LENGTH_SHORT).show(); })
+            .setNegativeButton(tr("cancel"), null).show());
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, dp(44));
+        clp.gravity = Gravity.END; clp.setMargins(0, dp(12), 0, 0);
+        box.addView(clear, clp);
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box).setPositiveButton("OK", null).show();
     }
 
@@ -750,6 +767,7 @@ public class MainActivity extends Activity {
                 case "event_new_pen": return "New pen";
                 case "event_calib": return "Calibrated";
                 case "event_measure": return "Full dose measured";
+                case "clear_history_confirm": return "Delete the entire history? This cannot be undone.";
             }
         } else {
             switch (key) {
@@ -832,6 +850,7 @@ public class MainActivity extends Activity {
                 case "event_new_pen": return "Neuer Pen";
                 case "event_calib": return "Kalibriert";
                 case "event_measure": return "Volldosis gemessen";
+                case "clear_history_confirm": return "Das gesamte Protokoll löschen? Das kann nicht rückgängig gemacht werden.";
             }
         }
         return key;
