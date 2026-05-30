@@ -369,11 +369,12 @@ public class MainActivity extends Activity {
             TextView row = text(rowText, 15, isCurrent ? Color.rgb(4,23,14) : ink, isCurrent);
             row.setPadding(dp(14), dp(12), dp(14), dp(12));
             row.setBackground(round(isCurrent ? accent : card2, 18));
+            row.setTag(new Object[]{avgMg, label});
 
             final double rowMg = avgMg;
             row.setClickable(true);
             row.setOnClickListener(v -> {
-                if (isCurrent) return;
+                if (Math.round(targetMg * 100) == Math.round(avgMg * 100)) return;
                 if (selectedRow[0] != null) selectedRow[0].setBackground(round(card2, 18));
                 if (selectedRow[0] != null) selectedRow[0].setTextColor(ink);
                 row.setBackground(round(blue, 18));
@@ -411,8 +412,25 @@ public class MainActivity extends Activity {
             if (selectedMg[0] < 0) return;
             targetMg = selectedMg[0];
             recomputeTarget(); savePrefs(); refreshUi();
-            dlg.dismiss();
-            Toast.makeText(this, String.format(tr("plan_activated_toast"), targetClicks), Toast.LENGTH_SHORT).show();
+            // Update alle Zeilen: Haken zum neuen Plan, alten entfernen
+            for (int i = 0; i < list.getChildCount(); i++) {
+                View child = list.getChildAt(i);
+                if (!(child instanceof TextView)) continue;
+                TextView tv = (TextView) child;
+                Object[] tag = (Object[]) tv.getTag();
+                double rowMg = (Double) tag[0];
+                String rowLabel = (String) tag[1];
+                boolean isNow = (Math.round(targetMg * 100) == Math.round(rowMg * 100));
+                tv.setBackground(round(isNow ? accent : card2, 18));
+                tv.setTextColor(isNow ? Color.rgb(4, 23, 14) : ink);
+                tv.setTypeface(null, isNow ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+                tv.setText((isNow ? "✓  " : "     ") + rowLabel);
+            }
+            activate.setEnabled(false);
+            activate.setBackground(round(track, 28));
+            activate.setTextColor(muted);
+            selectedMg[0] = -1;
+            if (selectedRow[0] != null) selectedRow[0] = null;
         });
 
         dlg.show();
@@ -490,7 +508,6 @@ public class MainActivity extends Activity {
 
     private void showMoreDialog() {
         LinearLayout box = dialogBox(); box.addView(text(tr("more_title"), 24, ink, true));
-        Button planner = pillButton(tr("planner"), card2, ink); planner.setOnClickListener(v -> showPlannerDialog()); box.addView(planner, new LinearLayout.LayoutParams(-1, dp(52)));
         Button measure = pillButton(tr("measure_full"), card2, ink); measure.setOnClickListener(v -> startFullDoseMeasureFullscreen()); box.addView(measure, new LinearLayout.LayoutParams(-1, dp(52)));
         Button newPen = pillButton(tr("new_pen"), card2, ink); newPen.setOnClickListener(v -> confirmNewPen()); box.addView(newPen, new LinearLayout.LayoutParams(-1, dp(52)));
         Button lang = pillButton("Language / Sprache", card2, ink); lang.setOnClickListener(v -> showLanguageDialog()); box.addView(lang, new LinearLayout.LayoutParams(-1, dp(52)));
