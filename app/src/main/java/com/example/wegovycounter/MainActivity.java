@@ -106,13 +106,13 @@ public class MainActivity extends Activity {
         stageLp.setMargins(0, dp(18), 0, dp(12));
         root.addView(stage, stageLp);
 
-        TextView label = text("AKTUELLER PEN", 11, muted, true);
+        TextView label = text(tr("current_pen"), 11, muted, true);
         label.setLetterSpacing(0.12f); label.setGravity(Gravity.CENTER);
         stage.addView(label, new LinearLayout.LayoutParams(-1, -2));
         restBigView = text("296", 49, ink, true);
         restBigView.setGravity(Gravity.CENTER); restBigView.setIncludeFontPadding(false);
         stage.addView(restBigView, new LinearLayout.LayoutParams(-1, -2));
-        restSubView = text("Klicks übrig", 14, muted, false);
+        restSubView = text("", 14, muted, false);
         restSubView.setGravity(Gravity.CENTER);
         stage.addView(restSubView);
 
@@ -129,27 +129,27 @@ public class MainActivity extends Activity {
 
         LinearLayout center = new LinearLayout(this);
         center.setOrientation(LinearLayout.VERTICAL); center.setGravity(Gravity.CENTER);
-        centerMainView = text("37 Klicks", 34, ink, true);
+        centerMainView = text("", 34, ink, true);
         centerMainView.setGravity(Gravity.CENTER); centerMainView.setIncludeFontPadding(false);
-        centerSubView = text("heute · 1.20 mg", 15, accent, true); centerSubView.setGravity(Gravity.CENTER);
-        centerTinyView = text("wird live gezählt", 12, muted, false); centerTinyView.setGravity(Gravity.CENTER);
+        centerSubView = text("", 15, accent, true); centerSubView.setGravity(Gravity.CENTER);
+        centerTinyView = text(tr("live_count"), 12, muted, false); centerTinyView.setGravity(Gravity.CENTER);
         center.addView(centerMainView); center.addView(centerSubView); center.addView(centerTinyView);
         frame.addView(center, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         stage.addView(frame, new LinearLayout.LayoutParams(-1, 0, 1));
 
         LinearLayout stats = new LinearLayout(this); stats.setOrientation(LinearLayout.HORIZONTAL);
-        leftStatView = statCard("Rest\n296 von 296");
-        rightStatView = statCard("Heute\n37 Klicks");
+        leftStatView = statCard("");
+        rightStatView = statCard("");
         stats.addView(leftStatView, new LinearLayout.LayoutParams(0, dp(72), 1));
         Space sp = new Space(this); stats.addView(sp, new LinearLayout.LayoutParams(dp(10), 1));
         stats.addView(rightStatView, new LinearLayout.LayoutParams(0, dp(72), 1));
         stage.addView(stats, new LinearLayout.LayoutParams(-1, -2));
 
-        statusView = text("Bereit", 13, muted, false);
+        statusView = text(tr("ready"), 13, muted, false);
         statusView.setGravity(Gravity.CENTER);
         root.addView(statusView, new LinearLayout.LayoutParams(-1, -2));
 
-        primaryButton = pillButton("37 Klicks einstellen", accent, Color.rgb(4,23,14));
+        primaryButton = pillButton("", accent, Color.rgb(4,23,14));
         primaryButton.setTextSize(17);
         primaryButton.setOnClickListener(v -> startDoseCountingFullscreen());
         root.addView(primaryButton, new LinearLayout.LayoutParams(-1, dp(58)));
@@ -195,14 +195,14 @@ public class MainActivity extends Activity {
         LinearLayout center = new LinearLayout(this); center.setOrientation(LinearLayout.VERTICAL); center.setGravity(Gravity.CENTER);
         fullCountView = text("0", 78, ink, true); fullCountView.setGravity(Gravity.CENTER); fullCountView.setIncludeFontPadding(false);
         fullSubView = text("/ " + targetClicks, 28, muted, true); fullSubView.setGravity(Gravity.CENTER);
-        fullHintView = text("Drehen bis Ziel erreicht ist", 15, muted, false); fullHintView.setGravity(Gravity.CENTER);
+        fullHintView = text(tr("turn_to_goal"), 15, muted, false); fullHintView.setGravity(Gravity.CENTER);
         center.addView(fullCountView); center.addView(fullSubView); center.addView(fullHintView);
         frame.addView(center, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         root.addView(frame, flp);
 
         LinearLayout adjust = new LinearLayout(this); adjust.setOrientation(LinearLayout.HORIZONTAL); adjust.setGravity(Gravity.CENTER);
         fullMinusButton = smallRoundButton("−1"); fullMinusButton.setOnClickListener(v -> { count=Math.max(0,count-1); targetReachedBuzzed=false; refreshUi(); });
-        fullPrimaryButton = pillButton("Zählen stoppen", card2, ink); fullPrimaryButton.setTextSize(17); fullPrimaryButton.setOnClickListener(v -> handleFullPrimaryPress());
+        fullPrimaryButton = pillButton(tr("stop_counting"), card2, ink); fullPrimaryButton.setTextSize(17); fullPrimaryButton.setOnClickListener(v -> handleFullPrimaryPress());
         fullPlusButton = smallRoundButton("+1"); fullPlusButton.setOnClickListener(v -> { count++; checkTargetFeedback(); refreshUi(); });
         adjust.addView(fullMinusButton, new LinearLayout.LayoutParams(dp(60), dp(60)));
         LinearLayout.LayoutParams mid = new LinearLayout.LayoutParams(0, dp(60), 1); mid.setMargins(dp(12),0,dp(12),0);
@@ -216,7 +216,7 @@ public class MainActivity extends Activity {
         recomputeTarget(); savePrefs();
         count = 0; lastClickNs = 0; targetReachedBuzzed = false; recomputeThreshold();
         mode = Mode.COUNTING;
-        buildCounterUi("Dose einstellen", targetClicks + " Klicks Ziel · " + String.format(Locale.US, "%.2f mg", targetMg));
+        buildCounterUi(tr("set_dose"), targetClicks + " " + tr("clicks_target") + String.format(Locale.US, "%.2f mg", targetMg));
         startAudioIfNeeded();
         refreshUi();
     }
@@ -226,7 +226,7 @@ public class MainActivity extends Activity {
         count = 0; targetReachedBuzzed=false; clickCalibrationPeaks.clear(); clickCalibrationTimes.clear();
         calibrationStartNs=System.nanoTime(); lastClickNs=0;
         mode=Mode.CALIBRATING_NOISE;
-        buildCounterUi("Kalibrieren", "erst still halten, dann 5–10 Klicks");
+        buildCounterUi(tr("calibrate"), tr("calibrate_subtitle"));
         startAudioIfNeeded();
         refreshUi();
     }
@@ -235,7 +235,7 @@ public class MainActivity extends Activity {
         if (!ensurePermission()) return;
         count = 0; lastClickNs = 0; targetReachedBuzzed = false; recomputeThreshold();
         mode = Mode.MEASURE_FULL;
-        buildCounterUi("Volldosis messen", "Pen bis Anschlag drehen");
+        buildCounterUi(tr("measure_full"), tr("measure_full_subtitle"));
         startAudioIfNeeded();
         refreshUi();
     }
@@ -253,10 +253,10 @@ public class MainActivity extends Activity {
 
     private void showTargetDialog() {
         LinearLayout box = dialogBox();
-        box.addView(text("Tagesziel", 24, ink, true));
-        box.addView(text("Der aktive Plan ist lokal. Später kommt er vom Server.", 13, muted, false));
+        box.addView(text(tr("target_title"), 24, ink, true));
+        box.addView(text(tr("target_hint"), 13, muted, false));
         EditText dose = input(String.format(Locale.US, "%.2f", targetMg), "mg");
-        box.addView(labelled("Zieldosis mg", dose));
+        box.addView(labelled(tr("target_dose_label"), dose));
         LinearLayout quick = new LinearLayout(this); quick.setOrientation(LinearLayout.HORIZONTAL);
         double[] qs = {0.6, 0.9, 1.2, 1.7, 2.4};
         for (double q : qs) {
@@ -267,32 +267,32 @@ public class MainActivity extends Activity {
         box.addView(quick);
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
                 .setView(box)
-                .setPositiveButton("Übernehmen", (d,w) -> { targetMg=readDouble(dose,targetMg); recomputeTarget(); savePrefs(); refreshUi(); })
-                .setNegativeButton("Abbrechen", null).show();
+                .setPositiveButton(tr("apply"), (d,w) -> { targetMg=readDouble(dose,targetMg); recomputeTarget(); savePrefs(); refreshUi(); })
+                .setNegativeButton(tr("cancel"), null).show();
     }
 
     private void showProfileDialog() {
-        LinearLayout box = dialogBox(); box.addView(text("Pen-Profil", 24, ink, true));
-        EditText strength = input(String.valueOf(strengthMg), "Volldosis mg");
-        EditText doses = input(String.valueOf(dosesPerPen), "Dosen pro Pen");
-        EditText full = input(String.valueOf(fullClickDoses), "Klicks pro Volldosis");
-        EditText rest = input(String.valueOf(remainingClicks), "Restklicks im Pen");
-        box.addView(labelled("Volldosis", strength)); box.addView(labelled("Dosen pro Pen", doses)); box.addView(labelled("Klicks pro Volldosis", full)); box.addView(labelled("Aktueller Rest", rest));
+        LinearLayout box = dialogBox(); box.addView(text(tr("profile_title"), 24, ink, true));
+        EditText strength = input(String.valueOf(strengthMg), tr("full_dose_hint"));
+        EditText doses = input(String.valueOf(dosesPerPen), tr("doses_per_pen"));
+        EditText full = input(String.valueOf(fullClickDoses), tr("clicks_per_dose"));
+        EditText rest = input(String.valueOf(remainingClicks), tr("remaining_hint"));
+        box.addView(labelled(tr("full_dose_label"), strength)); box.addView(labelled(tr("doses_per_pen"), doses)); box.addView(labelled(tr("clicks_per_dose"), full)); box.addView(labelled(tr("current_rest"), rest));
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box)
-                .setPositiveButton("Speichern", (d,w)->{ strengthMg=readDouble(strength,strengthMg); dosesPerPen=Math.max(1,readInt(doses,dosesPerPen)); fullClickDoses=Math.max(1,readInt(full,fullClickDoses)); int max=fullClickDoses*dosesPerPen; remainingClicks=Math.max(0,Math.min(max,readInt(rest,remainingClicks))); recomputeTarget(); savePrefs(); refreshUi(); })
-                .setNegativeButton("Abbrechen", null).show();
+                .setPositiveButton(tr("save"), (d,w)->{ strengthMg=readDouble(strength,strengthMg); dosesPerPen=Math.max(1,readInt(doses,dosesPerPen)); fullClickDoses=Math.max(1,readInt(full,fullClickDoses)); int max=fullClickDoses*dosesPerPen; remainingClicks=Math.max(0,Math.min(max,readInt(rest,remainingClicks))); recomputeTarget(); savePrefs(); refreshUi(); })
+                .setNegativeButton(tr("cancel"), null).show();
     }
 
     private void showPlannerDialog() {
         int total = fullClickDoses * dosesPerPen;
         double mgPerClick = strengthMg / Math.max(1, fullClickDoses);
-        LinearLayout box = dialogBox(); box.addView(text("Restfrei-Vorschläge", 24, ink, true));
-        box.addView(text("Rechnerisch, keine medizinische Empfehlung.", 13, muted, false));
+        LinearLayout box = dialogBox(); box.addView(text(tr("planner_title"), 24, ink, true));
+        box.addView(text(tr("planner_hint"), 13, muted, false));
         int base = remainingClicks > 0 ? remainingClicks : total;
         for (int weeks=4; weeks<=12; weeks++) {
             int low = base / weeks; int extra = base % weeks;
             if (low < 1) break;
-            String plan = extra==0 ? String.format(Locale.US, "%d Wochen · %d Klicks/Woche · %.2f mg", weeks, low, low*mgPerClick) : String.format(Locale.US, "%d Wochen · %dx%d + %dx%d Klicks · Ø %.2f mg", weeks, weeks-extra, low, extra, low+1, (base/(double)weeks)*mgPerClick);
+            String plan = extra==0 ? String.format(Locale.US, "%d " + tr("weeks") + " · %d " + tr("clicks_per_week") + " · %.2f mg", weeks, low, low*mgPerClick) : String.format(Locale.US, "%d " + tr("weeks") + " · %dx%d + %dx%d " + tr("clicks") + " · Ø %.2f mg", weeks, weeks-extra, low, extra, low+1, (base/(double)weeks)*mgPerClick);
             TextView row = text(plan, 15, ink, false); row.setPadding(dp(12),dp(10),dp(12),dp(10)); row.setBackground(round(card2,18));
             LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, dp(54)); rlp.setMargins(0, dp(6), 0, 0); box.addView(row, rlp);
         }
@@ -366,50 +366,50 @@ public class MainActivity extends Activity {
 
         if (restBigView != null) {
             restBigView.setText(String.valueOf(remainingClicks));
-            restSubView.setText(String.format(Locale.US, "Klicks übrig · ca. %.2f mg", remMg));
-            centerMainView.setText(String.format(Locale.US, "%d Klicks", targetClicks));
-            centerSubView.setText(String.format(Locale.US, "heute · %.2f mg", targetMg));
-            centerTinyView.setText("wird live gezählt");
+            restSubView.setText(String.format(Locale.US, tr("clicks_remaining_fmt"), remMg));
+            centerMainView.setText(String.format(Locale.US, "%d " + tr("clicks"), targetClicks));
+            centerSubView.setText(String.format(Locale.US, tr("today_mg_fmt"), targetMg));
+            centerTinyView.setText(tr("live_count"));
             penRing.progress = Math.max(0f, Math.min(1f, remainingClicks/(float)total));
             penRing.segments = Math.min(160, Math.max(24, total/3));
             penRing.invalidate();
             doseRing.progress = Math.max(0f, Math.min(1f, targetClicks/(float)Math.max(1, fullClickDoses)));
             doseRing.segments = Math.max(8, Math.min(96, fullClickDoses));
             doseRing.invalidate();
-            leftStatView.setText(String.format(Locale.US,"Rest\n%d von %d", remainingClicks, total));
-            rightStatView.setText(String.format(Locale.US,"Heute\n%d Klicks", targetClicks));
-            primaryButton.setText(String.format(Locale.US, "%d Klicks einstellen", targetClicks));
+            leftStatView.setText(String.format(Locale.US, tr("rest_stat_fmt"), remainingClicks, total));
+            rightStatView.setText(String.format(Locale.US, tr("today_stat_fmt"), targetClicks));
+            primaryButton.setText(String.format(Locale.US, tr("set_clicks_fmt"), targetClicks));
         }
 
         if (fullRing != null) {
             if (mode == Mode.COUNTING) {
                 fullCountView.setText(String.valueOf(count));
                 fullSubView.setText("/ " + targetClicks);
-                if (count < targetClicks) fullHintView.setText((targetClicks-count) + " Klicks bis Ziel");
-                else if (count == targetClicks) fullHintView.setText("Ziel erreicht");
-                else fullHintView.setText("über Ziel · mit −1 korrigieren");
+                if (count < targetClicks) fullHintView.setText((targetClicks-count) + " " + tr("clicks_to_goal"));
+                else if (count == targetClicks) fullHintView.setText(tr("goal_reached"));
+                else fullHintView.setText(tr("over_goal"));
                 fullRing.segments = Math.max(8, Math.min(96, targetClicks));
                 fullRing.progress = Math.max(0f, Math.min(1.15f, count/(float)Math.max(1,targetClicks)));
                 fullRing.progressColor = count>targetClicks ? warn : accent;
-                fullPrimaryButton.setText(count>=targetClicks ? "Dosis speichern" : "Zählen stoppen");
+                fullPrimaryButton.setText(count>=targetClicks ? tr("save_dose") : tr("stop_counting"));
                 fullPrimaryButton.setBackground(round(count>=targetClicks ? accent : card2, 28));
                 fullPrimaryButton.setTextColor(count>=targetClicks ? Color.rgb(4,23,14) : ink);
             } else if (mode == Mode.MEASURE_FULL) {
                 fullCountView.setText(String.valueOf(count));
-                fullSubView.setText("Klicks");
-                fullHintView.setText("bei Anschlag speichern");
+                fullSubView.setText(tr("clicks"));
+                fullHintView.setText(tr("save_at_stop"));
                 fullRing.segments = Math.max(8, Math.min(96, fullClickDoses));
                 fullRing.progress = Math.max(0f, Math.min(1.15f, count/(float)Math.max(1, fullClickDoses)));
                 fullRing.progressColor = blue;
-                fullPrimaryButton.setText(count>10 ? "Als Volldosis speichern" : "Zählen stoppen");
+                fullPrimaryButton.setText(count>10 ? tr("save_full_dose") : tr("stop_counting"));
             } else if (mode == Mode.CALIBRATING_NOISE || mode == Mode.CALIBRATING_CLICKS) {
                 fullCountView.setText(String.valueOf(count));
                 fullSubView.setText("/ 10");
-                fullHintView.setText(mode==Mode.CALIBRATING_NOISE ? "still halten …" : "jetzt Klicks drehen …");
+                fullHintView.setText(mode==Mode.CALIBRATING_NOISE ? tr("hold_still") : tr("turn_clicks"));
                 fullRing.segments = 10;
                 fullRing.progress = Math.max(0f, Math.min(1f, count/10f));
                 fullRing.progressColor = blue;
-                fullPrimaryButton.setText("Abbrechen");
+                fullPrimaryButton.setText(tr("cancel"));
             }
             fullRing.invalidate();
         }
@@ -438,7 +438,7 @@ public class MainActivity extends Activity {
         if(!clickCalibrationPeaks.isEmpty()) calibratedClickPeak=median(clickCalibrationPeaks);
         if(clickCalibrationTimes.size()>=2){ ArrayList<Double> gaps=new ArrayList<>(); for(int i=1;i<clickCalibrationTimes.size();i++)gaps.add((clickCalibrationTimes.get(i)-clickCalibrationTimes.get(i-1))/1_000_000.0); double gap=median(gaps); cooldownMs=(int)Math.max(55,Math.min(130,gap*0.45)); } else cooldownMs=80;
         recomputeThreshold(); mode=Mode.IDLE; savePrefs();
-        runOnUiThread(() -> { buildHomeUi(); refreshUi(); Toast.makeText(this, "Kalibriert: "+clickCalibrationPeaks.size()+" Klicks", Toast.LENGTH_SHORT).show(); });
+        runOnUiThread(() -> { buildHomeUi(); refreshUi(); Toast.makeText(this, String.format(tr("calibrated_toast"), clickCalibrationPeaks.size()), Toast.LENGTH_SHORT).show(); });
     }
 
     private void audioLoop(){
@@ -510,6 +510,45 @@ public class MainActivity extends Activity {
                 case "more_title": return "More";
                 case "measure_full": return "Measure full-dose clicks";
                 case "new_pen": return "New full pen";
+                case "current_pen": return "CURRENT PEN";
+                case "live_count": return "counting live";
+                case "ready": return "Ready";
+                case "set_dose": return "Set dose";
+                case "clicks_target": return "clicks target ·";
+                case "calibrate_subtitle": return "hold still first, then 5–10 clicks";
+                case "measure_full_subtitle": return "turn pen to stop";
+                case "target_title": return "Daily target";
+                case "target_hint": return "The active plan is stored locally.";
+                case "target_dose_label": return "Target dose mg";
+                case "apply": return "Apply";
+                case "profile_title": return "Pen profile";
+                case "full_dose_label": return "Full dose";
+                case "full_dose_hint": return "Full dose mg";
+                case "doses_per_pen": return "Doses per pen";
+                case "clicks_per_dose": return "Clicks per full dose";
+                case "remaining_hint": return "Remaining clicks";
+                case "current_rest": return "Current remaining";
+                case "save": return "Save";
+                case "planner_title": return "Taper suggestions";
+                case "planner_hint": return "Calculated only, not a medical recommendation.";
+                case "weeks": return "weeks";
+                case "clicks_per_week": return "clicks/week";
+                case "stop_counting": return "Stop counting";
+                case "save_dose": return "Save dose";
+                case "clicks_to_goal": return "clicks to go";
+                case "goal_reached": return "Goal reached";
+                case "over_goal": return "over goal · use −1 to correct";
+                case "save_at_stop": return "save when at stop";
+                case "save_full_dose": return "Save as full dose";
+                case "hold_still": return "hold still …";
+                case "turn_clicks": return "turn clicks now …";
+                case "turn_to_goal": return "Turn until goal is reached";
+                case "calibrated_toast": return "Calibrated: %d clicks";
+                case "clicks_remaining_fmt": return "clicks remaining · ~%.2f mg";
+                case "today_mg_fmt": return "today · %.2f mg";
+                case "rest_stat_fmt": return "Rest\n%d of %d";
+                case "today_stat_fmt": return "Today\n%d clicks";
+                case "set_clicks_fmt": return "Set %d clicks";
             }
         } else {
             switch (key) {
@@ -529,6 +568,45 @@ public class MainActivity extends Activity {
                 case "more_title": return "Mehr";
                 case "measure_full": return "Volldosis-Klicks messen";
                 case "new_pen": return "Neuer voller Pen";
+                case "current_pen": return "AKTUELLER PEN";
+                case "live_count": return "wird live gezählt";
+                case "ready": return "Bereit";
+                case "set_dose": return "Dose einstellen";
+                case "clicks_target": return "Klicks Ziel ·";
+                case "calibrate_subtitle": return "erst still halten, dann 5–10 Klicks";
+                case "measure_full_subtitle": return "Pen bis Anschlag drehen";
+                case "target_title": return "Tagesziel";
+                case "target_hint": return "Der aktive Plan ist lokal gespeichert.";
+                case "target_dose_label": return "Zieldosis mg";
+                case "apply": return "Übernehmen";
+                case "profile_title": return "Pen-Profil";
+                case "full_dose_label": return "Volldosis";
+                case "full_dose_hint": return "Volldosis mg";
+                case "doses_per_pen": return "Dosen pro Pen";
+                case "clicks_per_dose": return "Klicks pro Volldosis";
+                case "remaining_hint": return "Restklicks im Pen";
+                case "current_rest": return "Aktueller Rest";
+                case "save": return "Speichern";
+                case "planner_title": return "Restfrei-Vorschläge";
+                case "planner_hint": return "Rechnerisch, keine medizinische Empfehlung.";
+                case "weeks": return "Wochen";
+                case "clicks_per_week": return "Klicks/Woche";
+                case "stop_counting": return "Zählen stoppen";
+                case "save_dose": return "Dosis speichern";
+                case "clicks_to_goal": return "Klicks bis Ziel";
+                case "goal_reached": return "Ziel erreicht";
+                case "over_goal": return "über Ziel · mit −1 korrigieren";
+                case "save_at_stop": return "bei Anschlag speichern";
+                case "save_full_dose": return "Als Volldosis speichern";
+                case "hold_still": return "still halten …";
+                case "turn_clicks": return "jetzt Klicks drehen …";
+                case "turn_to_goal": return "Drehen bis Ziel erreicht ist";
+                case "calibrated_toast": return "Kalibriert: %d Klicks";
+                case "clicks_remaining_fmt": return "Klicks übrig · ca. %.2f mg";
+                case "today_mg_fmt": return "heute · %.2f mg";
+                case "rest_stat_fmt": return "Rest\n%d von %d";
+                case "today_stat_fmt": return "Heute\n%d Klicks";
+                case "set_clicks_fmt": return "%d Klicks einstellen";
             }
         }
         return key;
