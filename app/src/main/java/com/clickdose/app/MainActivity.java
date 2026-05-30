@@ -540,11 +540,60 @@ public class MainActivity extends Activity {
     }
 
     private void showMoreDialog() {
-        LinearLayout box = dialogBox(); box.addView(text(tr("more_title"), 24, ink, true));
-        Button measure = pillButton(tr("measure_full"), card2, ink); measure.setOnClickListener(v -> startFullDoseMeasureFullscreen()); box.addView(measure, new LinearLayout.LayoutParams(-1, dp(52)));
-        Button newPen = pillButton(tr("new_pen"), card2, ink); newPen.setOnClickListener(v -> confirmNewPen()); box.addView(newPen, new LinearLayout.LayoutParams(-1, dp(52)));
-        Button lang = pillButton("Language / Sprache", card2, ink); lang.setOnClickListener(v -> showLanguageDialog()); box.addView(lang, new LinearLayout.LayoutParams(-1, dp(52)));
-        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box).setPositiveButton("OK", null).show();
+        LinearLayout box = dialogBox();
+        box.addView(text(tr("more_title"), 24, ink, true));
+        TextView sub = text(tr("more_subtitle"), 13, muted, false);
+        sub.setPadding(0, 0, 0, dp(8));
+        box.addView(sub);
+
+        AlertDialog[] dlgRef = {null};
+
+        String[][] items = {
+            {"📏", tr("measure_full"), tr("more_measure_desc")},
+            {"💉", tr("new_pen"),      tr("more_newpen_desc")},
+            {"🌐", "Language / Sprache", tr("more_lang_desc")},
+        };
+        Runnable[] actions = {
+            () -> { dlgRef[0].dismiss(); startFullDoseMeasureFullscreen(); },
+            () -> { dlgRef[0].dismiss(); confirmNewPen(); },
+            () -> { dlgRef[0].dismiss(); showLanguageDialog(); },
+        };
+
+        for (int i = 0; i < items.length; i++) {
+            final Runnable action = actions[i];
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setBackground(round(card2, 20));
+            row.setPadding(dp(16), dp(14), dp(16), dp(14));
+            row.setClickable(true);
+            row.setFocusable(true);
+            row.setOnClickListener(v -> action.run());
+
+            TextView icon = text(items[i][0], 22, ink, false);
+            icon.setPadding(0, 0, dp(14), 0);
+            LinearLayout texts = new LinearLayout(this);
+            texts.setOrientation(LinearLayout.VERTICAL);
+            texts.addView(text(items[i][1], 16, ink, true));
+            texts.addView(text(items[i][2], 12, muted, false));
+            row.addView(icon);
+            row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+            lp.setMargins(0, dp(8), 0, 0);
+            box.addView(row, lp);
+        }
+
+        Button close = pillButton(tr("close"), track, muted);
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-1, dp(48));
+        clp.setMargins(0, dp(18), 0, dp(4));
+        box.addView(close, clp);
+
+        AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+            .setView(box).create();
+        dlgRef[0] = dlg;
+        close.setOnClickListener(v -> dlg.dismiss());
+        dlg.show();
     }
 
     private void refreshUi() {
@@ -796,6 +845,10 @@ public class MainActivity extends Activity {
                 case "calibrate_prompt_msg": return "Calibration helps the app reliably detect your pen's clicks. Recommended before first use.";
                 case "skip_for_now": return "Skip for now";
                 case "new_pen_cta": return "New pen →";
+                case "more_subtitle": return "Settings & tools";
+                case "more_measure_desc": return "Count clicks on a full pen to calibrate the total";
+                case "more_newpen_desc": return "Reset clicks for a new pen, optionally re-measure";
+                case "more_lang_desc": return "Switch between German and English";
             }
         } else {
             switch (key) {
@@ -887,6 +940,10 @@ public class MainActivity extends Activity {
                 case "calibrate_prompt_msg": return "Die Kalibrierung hilft der App, die Klicks deines Pens zuverlässig zu erkennen. Empfohlen vor dem ersten Gebrauch.";
                 case "skip_for_now": return "Jetzt überspringen";
                 case "new_pen_cta": return "Neuer Pen →";
+                case "more_subtitle": return "Einstellungen & Werkzeuge";
+                case "more_measure_desc": return "Klicks eines vollen Pens zählen um die Gesamtzahl zu prüfen";
+                case "more_newpen_desc": return "Klicks für neuen Pen zurücksetzen, optional neu messen";
+                case "more_lang_desc": return "Zwischen Deutsch und Englisch wechseln";
             }
         }
         return key;
