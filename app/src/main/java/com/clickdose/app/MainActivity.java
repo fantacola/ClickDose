@@ -23,6 +23,14 @@ public class MainActivity extends Activity {
     private volatile boolean audioActive = false;
     private volatile Mode mode = Mode.IDLE;
     private Thread audioThread;
+    private final android.os.Handler uiHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable measureDoneRunnable = () -> {
+        if (mode == Mode.MEASURE_FULL && count > 0 && fullPrimaryButton != null) {
+            fullPrimaryButton.setBackground(round(accent, 28));
+            fullPrimaryButton.setTextColor(Color.rgb(4, 23, 14));
+            fullPrimaryButton.setText(tr("done"));
+        }
+    };
 
     private int count = 0;
     private long lastClickNs = 0;
@@ -562,7 +570,7 @@ public class MainActivity extends Activity {
 
     private boolean ensurePermission(){ if(Build.VERSION.SDK_INT>=23 && checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){ requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},REQ_AUDIO); return false;} return true; }
     private void startAudioIfNeeded(){ if(audioActive)return; audioActive=true; audioThread=new Thread(this::audioLoop,"ClickDoseAudio"); audioThread.start(); }
-    private void stopAudio(){ audioActive=false; }
+    private void stopAudio(){ audioActive=false; uiHandler.removeCallbacks(measureDoneRunnable); }
     private void recomputeTarget(){ targetClicks=(int)Math.round(fullClickDoses*targetMg/Math.max(0.001,strengthMg)); if(targetClicks<1)targetClicks=1; }
     private void recomputeThreshold(){ threshold=Math.max(calibratedClickPeak*thresholdFactor, noiseAvgJump*9.0+450.0); }
     private double median(ArrayList<Double> v){ if(v.isEmpty())return 0; ArrayList<Double> c=new ArrayList<>(v); Collections.sort(c); return c.get(c.size()/2); }
@@ -589,7 +597,7 @@ public class MainActivity extends Activity {
                 latestPeak=peak; latestAvgJump=sum/Math.max(1,n); long now=System.nanoTime();
                 if(mode==Mode.CALIBRATING_NOISE){ noiseAvgJump=noiseAvgJump*0.92+latestAvgJump*0.08; if(now-calibrationStartNs>2_000_000_000L){ calibrationStartNs=now; lastClickNs=0; mode=Mode.CALIBRATING_CLICKS; runOnUiThread(this::refreshUi); }}
                 else if(mode==Mode.CALIBRATING_CLICKS){ double rough=Math.max(noiseAvgJump*12.0+600.0,900.0); if(now-lastClickNs>65_000_000L && peak>rough){ lastClickNs=now; clickCalibrationPeaks.add(peak); clickCalibrationTimes.add(now); count=clickCalibrationPeaks.size(); runOnUiThread(this::refreshUi);} if(now-calibrationStartNs>6_000_000_000L) finishCalibration(); }
-                else if(mode==Mode.COUNTING||mode==Mode.MEASURE_FULL){ if(peak<threshold*0.55){ noiseAvgJump=noiseAvgJump*0.995+latestAvgJump*0.005; recomputeThreshold(); } if(now-lastClickNs>cooldownMs*1_000_000L && peak>threshold){ lastClickNs=now; count++; runOnUiThread(() -> { checkTargetFeedback(); refreshUi(); }); }}
+                else if(mode==Mode.COUNTING||mode==Mode.MEASURE_FULL){ if(peak<threshold*0.55){ noiseAvgJump=noiseAvgJump*0.995+latestAvgJump*0.005; recomputeThreshold(); } if(now-lastClickNs>cooldownMs*1_000_000L && peak>threshold){ lastClickNs=now; count++; if(mode==Mode.MEASURE_FULL){ uiHandler.removeCallbacks(measureDoneRunnable); uiHandler.postDelayed(measureDoneRunnable, 3500); } runOnUiThread(() -> { checkTargetFeedback(); refreshUi(); }); }}
             }
         } catch(Throwable t){ runOnUiThread(() -> Toast.makeText(this, "Audio-Fehler: "+t.getMessage(), Toast.LENGTH_LONG).show()); }
         finally{ try{ if(rec!=null) rec.stop(); }catch(Exception ignored){} try{ if(rec!=null) rec.release(); }catch(Exception ignored){} audioActive=false; }
@@ -702,6 +710,7 @@ public class MainActivity extends Activity {
                 case "setup_pen": return "Set up pen →";
                 case "profile_setup_hint": return "Enter your pen's full dose and click count.";
                 case "next_choose_plan": return "Next: choose plan →";
+                case "done": return "Done";
             }
         } else {
             switch (key) {
@@ -779,6 +788,7 @@ public class MainActivity extends Activity {
                 case "setup_pen": return "Pen einrichten →";
                 case "profile_setup_hint": return "Gib die Volldosis und Klickzahl deines Pens ein.";
                 case "next_choose_plan": return "Weiter: Plan wählen →";
+                case "done": return "Fertig";
             }
         }
         return key;
