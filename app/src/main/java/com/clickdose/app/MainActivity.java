@@ -77,6 +77,48 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
         }
+        if (isFirstLaunch()) showOnboarding();
+    }
+
+    private boolean isFirstLaunch() {
+        return getSharedPreferences(PREF, MODE_PRIVATE).getBoolean("firstLaunch", true);
+    }
+
+    private void showOnboarding() {
+        getSharedPreferences(PREF, MODE_PRIVATE).edit().putBoolean("firstLaunch", false).apply();
+        LinearLayout box = dialogBox();
+        box.addView(text(tr("onboarding_title"), 26, ink, true));
+        box.addView(text(tr("onboarding_msg"), 15, muted, false));
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+            .setView(box)
+            .setCancelable(false)
+            .setPositiveButton(tr("setup_pen"), (d, w) -> showProfileDialogWithPlannerNext())
+            .show();
+    }
+
+    private void showProfileDialogWithPlannerNext() {
+        LinearLayout box = dialogBox(); box.addView(text(tr("profile_title"), 24, ink, true));
+        box.addView(text(tr("profile_setup_hint"), 13, muted, false));
+        EditText name = inputText(penName.isEmpty() ? tr("my_pen") : penName, tr("pen_name_hint"));
+        EditText strength = input(String.valueOf(strengthMg), tr("full_dose_hint"));
+        EditText doses = input(String.valueOf(dosesPerPen), tr("doses_per_pen"));
+        EditText full = input(String.valueOf(fullClickDoses), tr("clicks_per_dose"));
+        box.addView(labelled(tr("pen_name_label"), name));
+        box.addView(labelled(tr("full_dose_label"), strength));
+        box.addView(labelled(tr("doses_per_pen"), doses));
+        box.addView(labelled(tr("clicks_per_dose"), full));
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box)
+            .setCancelable(false)
+            .setPositiveButton(tr("next_choose_plan"), (d, w) -> {
+                penName = name.getText().toString().trim();
+                strengthMg = readDouble(strength, strengthMg);
+                dosesPerPen = Math.max(1, readInt(doses, dosesPerPen));
+                fullClickDoses = Math.max(1, readInt(full, fullClickDoses));
+                remainingClicks = fullClickDoses * dosesPerPen;
+                recomputeTarget(); savePrefs(); buildHomeUi(); refreshUi();
+                showPlannerDialog();
+            })
+            .show();
     }
 
     private void buildHomeUi() {
@@ -157,11 +199,11 @@ public class MainActivity extends Activity {
 
         LinearLayout bottom = roundedBox(Color.rgb(18,18,21), 28, dp(5));
         bottom.setOrientation(LinearLayout.HORIZONTAL); bottom.setGravity(Gravity.CENTER);
-        String[] items = {tr("calibrate"), tr("target"), tr("history"), tr("more")};
+        String[] items = {tr("calibrate"), tr("plan"), tr("history"), tr("more")};
         for (String n : items) {
             Button b = ghostButton(n); b.setTextSize(12);
             if (n.equals(tr("calibrate"))) b.setOnClickListener(v -> startCalibrationFullscreen());
-            else if (n.equals(tr("target"))) b.setOnClickListener(v -> showTargetDialog());
+            else if (n.equals(tr("plan"))) b.setOnClickListener(v -> showPlannerDialog());
             else if (n.equals(tr("history"))) b.setOnClickListener(v -> showHistoryDialog());
             else b.setOnClickListener(v -> showMoreDialog());
             bottom.addView(b, new LinearLayout.LayoutParams(0, dp(50), 1));
@@ -365,7 +407,7 @@ public class MainActivity extends Activity {
 
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
             .setView(box)
-            .setNegativeButton(tr("cancel"), null)
+            .setNegativeButton(tr("close"), null)
             .show();
     }
 
@@ -653,6 +695,12 @@ public class MainActivity extends Activity {
                 case "plan_activated_toast": return "Plan activated: %d clicks per dose";
                 case "rest_change_warning": return "⚠ Only change this if you are correcting an error.";
                 case "plan": return "Plan";
+                case "close": return "Close";
+                case "onboarding_title": return "Welcome to ClickDose";
+                case "onboarding_msg": return "Let's set up your pen first so the plan fits perfectly.";
+                case "setup_pen": return "Set up pen →";
+                case "profile_setup_hint": return "Enter your pen's full dose and click count.";
+                case "next_choose_plan": return "Next: choose plan →";
             }
         } else {
             switch (key) {
@@ -724,6 +772,12 @@ public class MainActivity extends Activity {
                 case "plan_activated_toast": return "Plan aktiviert: %d Klicks pro Dosis";
                 case "rest_change_warning": return "⚠ Nur ändern wenn du einen Fehler korrigierst.";
                 case "plan": return "Plan";
+                case "close": return "Schliessen";
+                case "onboarding_title": return "Willkommen bei ClickDose";
+                case "onboarding_msg": return "Richte zuerst deinen Pen ein, damit der Plan perfekt passt.";
+                case "setup_pen": return "Pen einrichten →";
+                case "profile_setup_hint": return "Gib die Volldosis und Klickzahl deines Pens ein.";
+                case "next_choose_plan": return "Weiter: Plan wählen →";
             }
         }
         return key;
