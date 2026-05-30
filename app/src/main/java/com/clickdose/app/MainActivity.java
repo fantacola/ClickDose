@@ -46,7 +46,7 @@ public class MainActivity extends Activity {
     private double targetMg = 1.2;
     private int targetClicks = 37;
     private boolean targetReachedBuzzed = false;
-    private String language = "de";
+    private String language = "en";
     private String penName = "";
     private String injectionHistory = "";
 
@@ -60,10 +60,10 @@ public class MainActivity extends Activity {
     private final int warn = Color.rgb(255,184,107);
     private final int blue = Color.rgb(126,147,255);
 
-    private TextView restBigView, restSubView, centerMainView, centerSubView, centerTinyView, statusView;
+    private TextView restBigView, restSubView, centerMainView, centerSubView, centerTinyView, lastDoseView;
     private TextView leftStatView, rightStatView;
     private SegmentedRingView penRing, doseRing;
-    private Button primaryButton, minusButton, plusButton;
+    private Button primaryButton;
 
     private TextView fullCountView, fullSubView, fullHintView;
     private SegmentedRingView fullRing;
@@ -108,10 +108,13 @@ public class MainActivity extends Activity {
         EditText strength = input(String.valueOf(strengthMg), tr("full_dose_hint"));
         EditText doses = input(String.valueOf(dosesPerPen), tr("doses_per_pen"));
         EditText full = input(String.valueOf(fullClickDoses), tr("clicks_per_dose"));
+        TextView clicksHint = text(tr("pen_clicks_hint"), 11, muted, false);
+        clicksHint.setPadding(0, dp(2), 0, dp(6));
         box.addView(labelled(tr("pen_name_label"), name));
         box.addView(labelled(tr("full_dose_label"), strength));
         box.addView(labelled(tr("doses_per_pen"), doses));
         box.addView(labelled(tr("clicks_per_dose"), full));
+        box.addView(clicksHint);
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box)
             .setCancelable(false)
             .setPositiveButton(tr("next_choose_plan"), (d, w) -> {
@@ -200,7 +203,10 @@ public class MainActivity extends Activity {
         stats.addView(rightStatView, new LinearLayout.LayoutParams(0, dp(72), 1));
         stage.addView(stats, new LinearLayout.LayoutParams(-1, -2));
 
-        statusView = null;
+        lastDoseView = text("", 12, muted, false);
+        lastDoseView.setGravity(Gravity.CENTER);
+        lastDoseView.setPadding(0, dp(6), 0, dp(2));
+        stage.addView(lastDoseView, new LinearLayout.LayoutParams(-1, -2));
 
         primaryButton = pillButton("", accent, Color.rgb(4,23,14));
         primaryButton.setTextSize(17);
@@ -306,26 +312,6 @@ public class MainActivity extends Activity {
         mode = Mode.IDLE; stopAudio(); buildHomeUi(); refreshUi();
     }
 
-    private void showTargetDialog() {
-        LinearLayout box = dialogBox();
-        box.addView(text(tr("target_title"), 24, ink, true));
-        box.addView(text(tr("target_hint"), 13, muted, false));
-        EditText dose = input(String.format(Locale.US, "%.2f", targetMg), "mg");
-        box.addView(labelled(tr("target_dose_label"), dose));
-        LinearLayout quick = new LinearLayout(this); quick.setOrientation(LinearLayout.HORIZONTAL);
-        double[] qs = {0.6, 0.9, 1.2, 1.7, 2.4};
-        for (double q : qs) {
-            Button b = ghostButton(String.format(Locale.US, q==Math.round(q)?"%.0f":"%.1f", q));
-            b.setOnClickListener(v -> dose.setText(((Button)v).getText()));
-            quick.addView(b, new LinearLayout.LayoutParams(0, dp(46), 1));
-        }
-        box.addView(quick);
-        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
-                .setView(box)
-                .setPositiveButton(tr("apply"), (d,w) -> { targetMg=readDouble(dose,targetMg); recomputeTarget(); savePrefs(); refreshUi(); })
-                .setNegativeButton(tr("cancel"), null).show();
-    }
-
     private void showProfileDialog() {
         LinearLayout box = dialogBox(); box.addView(text(tr("profile_title"), 24, ink, true));
         EditText name = inputText(penName.isEmpty() ? tr("my_pen") : penName, tr("pen_name_hint"));
@@ -334,7 +320,10 @@ public class MainActivity extends Activity {
         EditText full = input(String.valueOf(fullClickDoses), tr("clicks_per_dose"));
         EditText rest = input(String.valueOf(remainingClicks), tr("remaining_hint"));
         TextView restWarning = text(tr("rest_change_warning"), 12, warn, false);
+        TextView clicksHint2 = text(tr("pen_clicks_hint"), 11, muted, false);
+        clicksHint2.setPadding(0, dp(2), 0, dp(6));
         box.addView(labelled(tr("pen_name_label"), name)); box.addView(labelled(tr("full_dose_label"), strength)); box.addView(labelled(tr("doses_per_pen"), doses)); box.addView(labelled(tr("clicks_per_dose"), full));
+        box.addView(clicksHint2);
         box.addView(labelled(tr("current_rest"), rest)); box.addView(restWarning);
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box)
                 .setPositiveButton(tr("save"), (d,w)->{ penName=name.getText().toString().trim(); strengthMg=readDouble(strength,strengthMg); dosesPerPen=Math.max(1,readInt(doses,dosesPerPen)); fullClickDoses=Math.max(1,readInt(full,fullClickDoses)); int max=fullClickDoses*dosesPerPen; remainingClicks=Math.max(0,Math.min(max,readInt(rest,remainingClicks))); recomputeTarget(); savePrefs(); refreshUi(); buildHomeUi(); refreshUi(); })
@@ -606,7 +595,7 @@ public class MainActivity extends Activity {
             restSubView.setText(String.format(Locale.US, tr("clicks_remaining_fmt"), remMg));
             centerMainView.setText(String.format(Locale.US, "%d " + tr("clicks"), targetClicks));
             centerSubView.setText(String.format(Locale.US, tr("today_mg_fmt"), targetMg));
-            centerTinyView.setText(tr("live_count"));
+            centerTinyView.setText(tr("tap_to_count"));
             penRing.progress = Math.max(0f, Math.min(1f, remainingClicks/(float)total));
             penRing.segments = Math.min(160, Math.max(24, total/3));
             penRing.invalidate();
@@ -631,6 +620,7 @@ public class MainActivity extends Activity {
                 primaryButton.setTextColor(Color.rgb(4, 23, 14));
                 primaryButton.setOnClickListener(v -> startDoseCountingFullscreen());
             }
+            if (lastDoseView != null) lastDoseView.setText(lastDoseText());
         }
 
         if (fullRing != null) {
@@ -657,12 +647,15 @@ public class MainActivity extends Activity {
             } else if (mode == Mode.CALIBRATING_NOISE || mode == Mode.CALIBRATING_CLICKS) {
                 fullCountView.setText(String.valueOf(count));
                 fullSubView.setText("/ 10");
-                fullHintView.setText(mode==Mode.CALIBRATING_NOISE ? tr("hold_still") : tr("turn_clicks"));
+                fullHintView.setText(mode==Mode.CALIBRATING_NOISE ? tr("calib_noise_hint") : tr("calib_click_hint"));
                 fullRing.segments = 10;
                 fullRing.progress = Math.max(0f, Math.min(1f, count/10f));
                 fullRing.progressColor = blue;
                 fullPrimaryButton.setText(tr("cancel"));
             }
+            boolean isCalib = mode == Mode.CALIBRATING_NOISE || mode == Mode.CALIBRATING_CLICKS;
+            fullMinusButton.setVisibility(isCalib ? View.INVISIBLE : View.VISIBLE);
+            fullPlusButton.setVisibility(isCalib ? View.INVISIBLE : View.VISIBLE);
             fullRing.invalidate();
         }
     }
@@ -684,6 +677,31 @@ public class MainActivity extends Activity {
         String stamp = df.format(new java.util.Date());
         injectionHistory = (injectionHistory == null ? "" : injectionHistory) + stamp + "|EVENT|" + type + "|" + detail + "\n";
         savePrefs();
+    }
+
+    private String lastDoseText() {
+        if (injectionHistory == null || injectionHistory.trim().isEmpty()) return tr("no_dose_yet");
+        String[] rows = injectionHistory.split("\\n");
+        for (int i = rows.length - 1; i >= 0; i--) {
+            String row = rows[i].trim();
+            if (row.isEmpty()) continue;
+            String[] parts = row.split("\\|");
+            if (parts.length >= 4 && "EVENT".equals(parts[2])) continue;
+            if (parts.length >= 4) {
+                return tr("last_dose_fmt") + "  " + parts[0] + " · " + parts[2] + " " + tr("clicks") + " · " + parts[3] + " mg";
+            }
+        }
+        return tr("no_dose_yet");
+    }
+
+    @Override public void onRequestPermissionsResult(int req, String[] perms, int[] results) {
+        if (req == REQ_AUDIO) {
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, tr("mic_granted"), Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, tr("mic_denied"), Toast.LENGTH_LONG).show();
+            }
+        }
     }
 
     private boolean ensurePermission(){ if(Build.VERSION.SDK_INT>=23 && checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){ requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},REQ_AUDIO); return false;} return true; }
@@ -849,6 +867,14 @@ public class MainActivity extends Activity {
                 case "more_measure_desc": return "Count clicks on a full pen to calibrate the total";
                 case "more_newpen_desc": return "Reset clicks for a new pen, optionally re-measure";
                 case "more_lang_desc": return "Switch between German and English";
+                case "tap_to_count": return "tap button to count";
+                case "last_dose_fmt": return "Last dose";
+                case "no_dose_yet": return "No doses recorded yet";
+                case "mic_granted": return "Microphone access granted";
+                case "mic_denied": return "Microphone access denied — click counting needs the mic";
+                case "pen_clicks_hint": return "Reference: Wegovy/Ozempic 0.25–1.0 mg → 20 clicks · 1.7 mg → 57 · 2.4 mg → 74";
+                case "calib_noise_hint": return "Hold pen still — measuring background noise …";
+                case "calib_click_hint": return "Now slowly turn your pen and count 5–10 clicks";
             }
         } else {
             switch (key) {
@@ -944,6 +970,14 @@ public class MainActivity extends Activity {
                 case "more_measure_desc": return "Klicks eines vollen Pens zählen um die Gesamtzahl zu prüfen";
                 case "more_newpen_desc": return "Klicks für neuen Pen zurücksetzen, optional neu messen";
                 case "more_lang_desc": return "Zwischen Deutsch und Englisch wechseln";
+                case "tap_to_count": return "Taste drücken zum Zählen";
+                case "last_dose_fmt": return "Letzte Dosis";
+                case "no_dose_yet": return "Noch keine Dosis gespeichert";
+                case "mic_granted": return "Mikrofon-Zugriff erlaubt";
+                case "mic_denied": return "Mikrofon-Zugriff verweigert — Klickerkennung braucht das Mikrofon";
+                case "pen_clicks_hint": return "Referenz: Wegovy/Ozempic 0.25–1.0 mg → 20 Klicks · 1.7 mg → 57 · 2.4 mg → 74";
+                case "calib_noise_hint": return "Pen ruhig halten — Hintergrundgeräusche werden gemessen …";
+                case "calib_click_hint": return "Jetzt langsam drehen und 5–10 Klicks zählen";
             }
         }
         return key;
