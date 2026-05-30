@@ -562,6 +562,14 @@ public class MainActivity extends Activity {
             leftStatView.setText(String.format(Locale.US, tr("rest_stat_fmt"), remainingClicks, total));
             rightStatView.setText(String.format(Locale.US, tr("today_stat_fmt"), targetClicks));
             primaryButton.setText(String.format(Locale.US, tr("set_clicks_fmt"), targetClicks));
+            if (statusView != null && targetClicks > 0) {
+                int weeksLeft = remainingClicks / targetClicks;
+                int remainder = remainingClicks % targetClicks;
+                String weeksStr = remainder == 0
+                    ? String.format(tr("weeks_left_exact"), weeksLeft)
+                    : String.format(tr("weeks_left_approx"), weeksLeft);
+                statusView.setText(weeksStr);
+            }
         }
 
         if (fullRing != null) {
@@ -768,6 +776,8 @@ public class MainActivity extends Activity {
                 case "event_calib": return "Calibrated";
                 case "event_measure": return "Full dose measured";
                 case "clear_history_confirm": return "Delete the entire history? This cannot be undone.";
+                case "weeks_left_exact": return "%d doses remaining";
+                case "weeks_left_approx": return "~%d doses remaining";
             }
         } else {
             switch (key) {
@@ -851,6 +861,8 @@ public class MainActivity extends Activity {
                 case "event_calib": return "Kalibriert";
                 case "event_measure": return "Volldosis gemessen";
                 case "clear_history_confirm": return "Das gesamte Protokoll löschen? Das kann nicht rückgängig gemacht werden.";
+                case "weeks_left_exact": return "%d Dosen verbleibend";
+                case "weeks_left_approx": return "~%d Dosen verbleibend";
             }
         }
         return key;
