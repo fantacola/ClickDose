@@ -349,11 +349,29 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    private void confirmNewPen() {
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+                .setTitle(tr("new_pen"))
+                .setMessage(tr("new_pen_measure_prompt"))
+                .setPositiveButton(tr("measure_now"), (d, w) -> {
+                    remainingClicks = fullClickDoses * dosesPerPen;
+                    savePrefs(); refreshUi();
+                    startFullDoseMeasureFullscreen();
+                })
+                .setNeutralButton(tr("use_saved"), (d, w) -> {
+                    remainingClicks = fullClickDoses * dosesPerPen;
+                    savePrefs(); refreshUi();
+                    Toast.makeText(this, String.format(tr("new_pen_set_toast"), fullClickDoses * dosesPerPen), Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton(tr("cancel"), null)
+                .show();
+    }
+
     private void showMoreDialog() {
         LinearLayout box = dialogBox(); box.addView(text(tr("more_title"), 24, ink, true));
         Button planner = pillButton(tr("planner"), card2, ink); planner.setOnClickListener(v -> showPlannerDialog()); box.addView(planner, new LinearLayout.LayoutParams(-1, dp(52)));
         Button measure = pillButton(tr("measure_full"), card2, ink); measure.setOnClickListener(v -> startFullDoseMeasureFullscreen()); box.addView(measure, new LinearLayout.LayoutParams(-1, dp(52)));
-        Button newPen = pillButton(tr("new_pen"), card2, ink); newPen.setOnClickListener(v -> { remainingClicks=fullClickDoses*dosesPerPen; savePrefs(); refreshUi(); }); box.addView(newPen, new LinearLayout.LayoutParams(-1, dp(52)));
+        Button newPen = pillButton(tr("new_pen"), card2, ink); newPen.setOnClickListener(v -> confirmNewPen()); box.addView(newPen, new LinearLayout.LayoutParams(-1, dp(52)));
         Button lang = pillButton("Language / Sprache", card2, ink); lang.setOnClickListener(v -> showLanguageDialog()); box.addView(lang, new LinearLayout.LayoutParams(-1, dp(52)));
         TextView dbg = text(String.format(Locale.US,"Peak %.0f · Noise %.1f · Threshold %.0f · Cooldown %d ms", latestPeak, noiseAvgJump, threshold, cooldownMs), 12, muted, false); box.addView(dbg);
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box).setPositiveButton("OK", null).show();
@@ -549,6 +567,10 @@ public class MainActivity extends Activity {
                 case "rest_stat_fmt": return "Rest\n%d of %d";
                 case "today_stat_fmt": return "Today\n%d clicks";
                 case "set_clicks_fmt": return "Set %d clicks";
+                case "new_pen_measure_prompt": return "Do you want to measure the full-dose clicks now? This ensures the plan has no remainder.";
+                case "measure_now": return "Measure now";
+                case "use_saved": return "Use saved value";
+                case "new_pen_set_toast": return "New pen set: %d clicks";
             }
         } else {
             switch (key) {
@@ -607,6 +629,10 @@ public class MainActivity extends Activity {
                 case "rest_stat_fmt": return "Rest\n%d von %d";
                 case "today_stat_fmt": return "Heute\n%d Klicks";
                 case "set_clicks_fmt": return "%d Klicks einstellen";
+                case "new_pen_measure_prompt": return "Möchtest du die Volldosis-Klicks jetzt messen? So stellt der Plan sicher, dass kein Rest bleibt.";
+                case "measure_now": return "Jetzt messen";
+                case "use_saved": return "Gespeicherten Wert nutzen";
+                case "new_pen_set_toast": return "Neuer Pen gesetzt: %d Klicks";
             }
         }
         return key;
