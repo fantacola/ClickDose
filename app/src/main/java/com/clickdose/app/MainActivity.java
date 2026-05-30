@@ -567,8 +567,21 @@ public class MainActivity extends Activity {
             leftStatView.setText(String.format(Locale.US, tr("rest_stat_fmt"), remainingClicks, total));
             int dosesLeft = targetClicks > 0 ? remainingClicks / targetClicks : 0;
             int rem = targetClicks > 0 ? remainingClicks % targetClicks : 0;
-            rightStatView.setText(tr("doses_label") + "\n" + (rem == 0 ? dosesLeft : "~" + dosesLeft));
-            primaryButton.setText(String.format(Locale.US, tr("set_clicks_fmt"), targetClicks));
+            boolean penEmpty = remainingClicks <= 0;
+            boolean penNearlyEmpty = !penEmpty && remainingClicks < targetClicks;
+            rightStatView.setText(tr("doses_label") + "\n" + (penEmpty ? "0" : rem == 0 ? dosesLeft : "~" + dosesLeft));
+            rightStatView.setTextColor(penEmpty || penNearlyEmpty ? warn : ink);
+            if (penEmpty) {
+                primaryButton.setText(tr("new_pen_cta"));
+                primaryButton.setBackground(round(warn, 30));
+                primaryButton.setTextColor(Color.rgb(30, 15, 0));
+                primaryButton.setOnClickListener(v -> confirmNewPen());
+            } else {
+                primaryButton.setText(String.format(Locale.US, tr("set_clicks_fmt"), targetClicks));
+                primaryButton.setBackground(round(accent, 30));
+                primaryButton.setTextColor(Color.rgb(4, 23, 14));
+                primaryButton.setOnClickListener(v -> startDoseCountingFullscreen());
+            }
         }
 
         if (fullRing != null) {
@@ -782,6 +795,7 @@ public class MainActivity extends Activity {
                 case "calibrate_prompt_title": return "Calibrate first?";
                 case "calibrate_prompt_msg": return "Calibration helps the app reliably detect your pen's clicks. Recommended before first use.";
                 case "skip_for_now": return "Skip for now";
+                case "new_pen_cta": return "New pen →";
             }
         } else {
             switch (key) {
@@ -872,6 +886,7 @@ public class MainActivity extends Activity {
                 case "calibrate_prompt_title": return "Erst kalibrieren?";
                 case "calibrate_prompt_msg": return "Die Kalibrierung hilft der App, die Klicks deines Pens zuverlässig zu erkennen. Empfohlen vor dem ersten Gebrauch.";
                 case "skip_for_now": return "Jetzt überspringen";
+                case "new_pen_cta": return "Neuer Pen →";
             }
         }
         return key;
