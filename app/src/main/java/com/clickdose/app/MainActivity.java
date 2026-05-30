@@ -74,7 +74,14 @@ public class MainActivity extends Activity {
         loadPrefs();
         recomputeTarget();
         recomputeThreshold();
-        buildHomeUi();
+        int savedCount = getSharedPreferences(PREF, MODE_PRIVATE).getInt("countInProgress", -1);
+        if (savedCount > 0) {
+            count = savedCount;
+            mode = Mode.COUNTING;
+            buildCounterUi(tr("set_dose"), targetClicks + " " + tr("clicks_target") + String.format(Locale.US, "%.2f mg", targetMg));
+        } else {
+            buildHomeUi();
+        }
         refreshUi();
         if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
@@ -91,6 +98,9 @@ public class MainActivity extends Activity {
         LinearLayout box = dialogBox();
         box.addView(text(tr("onboarding_title"), 26, ink, true));
         box.addView(text(tr("onboarding_msg"), 15, muted, false));
+        TextView ringsInfo = text(tr("onboarding_rings"), 13, muted, false);
+        ringsInfo.setPadding(0, dp(10), 0, 0);
+        box.addView(ringsInfo);
         TextView disclaimer = text(tr("onboarding_disclaimer"), 12, warn, false);
         disclaimer.setPadding(0, dp(12), 0, 0);
         box.addView(disclaimer);
@@ -164,7 +174,7 @@ public class MainActivity extends Activity {
         stageLp.setMargins(0, dp(18), 0, dp(12));
         root.addView(stage, stageLp);
 
-        TextView label = text(tr("current_pen"), 11, muted, true);
+        TextView label = text(tr("clicks_remaining_label"), 11, muted, true);
         label.setLetterSpacing(0.12f); label.setGravity(Gravity.CENTER);
         stage.addView(label, new LinearLayout.LayoutParams(-1, -2));
         restBigView = text("296", 49, ink, true);
@@ -237,7 +247,7 @@ public class MainActivity extends Activity {
         setContentView(root);
 
         LinearLayout top = new LinearLayout(this); top.setOrientation(LinearLayout.HORIZONTAL); top.setGravity(Gravity.CENTER_VERTICAL);
-        fullBackButton = ghostButton("‹"); fullBackButton.setTextSize(34); fullBackButton.setOnClickListener(v -> { mode=Mode.IDLE; stopAudio(); buildHomeUi(); refreshUi(); });
+        fullBackButton = ghostButton("‹"); fullBackButton.setTextSize(34); fullBackButton.setOnClickListener(v -> { mode=Mode.IDLE; stopAudio(); getSharedPreferences(PREF, MODE_PRIVATE).edit().putInt("countInProgress", -1).apply(); buildHomeUi(); refreshUi(); });
         top.addView(fullBackButton, new LinearLayout.LayoutParams(dp(52), dp(52)));
         LinearLayout texts = new LinearLayout(this); texts.setOrientation(LinearLayout.VERTICAL);
         TextView t = text(title, 23, ink, true); t.setIncludeFontPadding(false);
@@ -441,14 +451,20 @@ public class MainActivity extends Activity {
         LinearLayout box = dialogBox();
         box.addView(text(tr("history_title"), 24, ink, true));
         box.addView(text(tr("history_hint"), 13, muted, false));
+
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(0, dp(4), 0, dp(4));
+
         if (injectionHistory == null || injectionHistory.trim().isEmpty()) {
             TextView empty = text(tr("history_empty"), 15, muted, false);
             empty.setPadding(dp(12), dp(18), dp(12), dp(18));
-            box.addView(empty);
+            list.addView(empty);
         } else {
             String[] rows = injectionHistory.split("\\n");
             int shown = 0;
-            for (int i = rows.length - 1; i >= 0 && shown < 12; i--) {
+            for (int i = rows.length - 1; i >= 0 && shown < 30; i--) {
                 String row = rows[i];
                 if (row.trim().isEmpty()) continue;
                 String[] parts = row.split("\\|");
@@ -477,10 +493,15 @@ public class MainActivity extends Activity {
                 }
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
                 lp.setMargins(0, dp(6), 0, 0);
-                box.addView(tv, lp);
+                list.addView(tv, lp);
                 shown++;
             }
         }
+        scroll.addView(list);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, dp(340));
+        slp.setMargins(0, dp(8), 0, dp(4));
+        box.addView(scroll, slp);
+
         Button clear = pillButton(tr("clear_history"), Color.rgb(50,20,20), Color.rgb(200,80,80));
         clear.setTextSize(13);
         clear.setOnClickListener(v -> new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
@@ -488,7 +509,7 @@ public class MainActivity extends Activity {
             .setPositiveButton(tr("clear_history"), (d,w) -> { injectionHistory = ""; savePrefs(); Toast.makeText(this, tr("history_cleared"), Toast.LENGTH_SHORT).show(); })
             .setNegativeButton(tr("cancel"), null).show());
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, dp(44));
-        clp.gravity = Gravity.END; clp.setMargins(0, dp(12), 0, 0);
+        clp.gravity = Gravity.END; clp.setMargins(0, dp(4), 0, 0);
         box.addView(clear, clp);
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box).setPositiveButton("OK", null).show();
     }
@@ -660,6 +681,10 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void saveCountInProgress() {
+        getSharedPreferences(PREF, MODE_PRIVATE).edit().putInt("countInProgress", mode == Mode.COUNTING ? count : -1).apply();
+    }
+
     private void saveDoseAndSubtract() {
         if (count <= 0) return;
         int used = count;
@@ -670,6 +695,7 @@ public class MainActivity extends Activity {
         injectionHistory = (injectionHistory == null ? "" : injectionHistory) + stamp + "|" + used + "|" + String.format(Locale.US, "%.2f", mg) + "|" + (fullClickDoses*dosesPerPen) + "|" + restAfter + "|" + targetClicks + "|" + String.format(Locale.US, "%.2f", targetMg) + "\n";
         remainingClicks = restAfter;
         count = 0; targetReachedBuzzed=false; mode=Mode.IDLE; stopAudio(); savePrefs();
+        getSharedPreferences(PREF, MODE_PRIVATE).edit().putInt("countInProgress", -1).apply();
     }
 
     private void logEvent(String type, String detail) {
@@ -736,7 +762,7 @@ public class MainActivity extends Activity {
                 latestPeak=peak; latestAvgJump=sum/Math.max(1,n); long now=System.nanoTime();
                 if(mode==Mode.CALIBRATING_NOISE){ noiseAvgJump=noiseAvgJump*0.92+latestAvgJump*0.08; if(now-calibrationStartNs>2_000_000_000L){ calibrationStartNs=now; lastClickNs=0; mode=Mode.CALIBRATING_CLICKS; runOnUiThread(this::refreshUi); }}
                 else if(mode==Mode.CALIBRATING_CLICKS){ double rough=Math.max(noiseAvgJump*12.0+600.0,900.0); if(now-lastClickNs>65_000_000L && peak>rough){ lastClickNs=now; clickCalibrationPeaks.add(peak); clickCalibrationTimes.add(now); count=clickCalibrationPeaks.size(); runOnUiThread(this::refreshUi);} if(now-calibrationStartNs>6_000_000_000L) finishCalibration(); }
-                else if(mode==Mode.COUNTING||mode==Mode.MEASURE_FULL){ if(peak<threshold*0.55){ noiseAvgJump=noiseAvgJump*0.995+latestAvgJump*0.005; recomputeThreshold(); } if(now-lastClickNs>cooldownMs*1_000_000L && peak>threshold){ lastClickNs=now; count++; if(mode==Mode.MEASURE_FULL){ uiHandler.removeCallbacks(measureDoneRunnable); uiHandler.postDelayed(measureDoneRunnable, 3500); } runOnUiThread(() -> { checkTargetFeedback(); refreshUi(); }); }}
+                else if(mode==Mode.COUNTING||mode==Mode.MEASURE_FULL){ if(peak<threshold*0.55){ noiseAvgJump=noiseAvgJump*0.995+latestAvgJump*0.005; recomputeThreshold(); } if(now-lastClickNs>cooldownMs*1_000_000L && peak>threshold){ lastClickNs=now; count++; if(mode==Mode.MEASURE_FULL){ uiHandler.removeCallbacks(measureDoneRunnable); uiHandler.postDelayed(measureDoneRunnable, 3500); } runOnUiThread(() -> { checkTargetFeedback(); refreshUi(); saveCountInProgress(); }); }}
             }
         } catch(Throwable t){ runOnUiThread(() -> Toast.makeText(this, "Audio-Fehler: "+t.getMessage(), Toast.LENGTH_LONG).show()); }
         finally{ try{ if(rec!=null) rec.stop(); }catch(Exception ignored){} try{ if(rec!=null) rec.release(); }catch(Exception ignored){} audioActive=false; }
@@ -810,8 +836,8 @@ public class MainActivity extends Activity {
                 case "remaining_hint": return "Remaining clicks";
                 case "current_rest": return "Current remaining";
                 case "save": return "Save";
-                case "planner_title": return "Taper suggestions";
-                case "planner_hint": return "Calculated only, not a medical recommendation.";
+                case "planner_title": return "Dose split plans";
+                case "planner_hint": return "Remainder-free splits calculated from your pen. Not a medical recommendation.";
                 case "weeks": return "weeks";
                 case "clicks_per_week": return "clicks/week";
                 case "stop_counting": return "Stop counting";
@@ -875,6 +901,8 @@ public class MainActivity extends Activity {
                 case "pen_clicks_hint": return "Reference: Wegovy/Ozempic 0.25–1.0 mg → 20 clicks · 1.7 mg → 57 · 2.4 mg → 74";
                 case "calib_noise_hint": return "Hold pen still — measuring background noise …";
                 case "calib_click_hint": return "Now slowly turn your pen and count 5–10 clicks";
+                case "clicks_remaining_label": return "CLICKS REMAINING";
+                case "onboarding_rings": return "On the home screen: the outer green ring shows pen fill level, the inner blue ring shows your current dose relative to a full dose.";
             }
         } else {
             switch (key) {
@@ -978,6 +1006,8 @@ public class MainActivity extends Activity {
                 case "pen_clicks_hint": return "Referenz: Wegovy/Ozempic 0.25–1.0 mg → 20 Klicks · 1.7 mg → 57 · 2.4 mg → 74";
                 case "calib_noise_hint": return "Pen ruhig halten — Hintergrundgeräusche werden gemessen …";
                 case "calib_click_hint": return "Jetzt langsam drehen und 5–10 Klicks zählen";
+                case "clicks_remaining_label": return "KLICKS VERBLEIBEND";
+                case "onboarding_rings": return "Auf dem Homescreen: der äussere grüne Ring zeigt den Füllstand des Pens, der innere blaue Ring zeigt deine aktuelle Dosis im Verhältnis zur Volldosis.";
             }
         }
         return key;
