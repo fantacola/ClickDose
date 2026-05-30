@@ -1,0 +1,572 @@
+package com.example.wegovycounter;
+
+import android.Manifest;
+import android.app.*;
+import android.content.*;
+import android.content.pm.PackageManager;
+import android.graphics.*;
+import android.graphics.drawable.*;
+import android.media.*;
+import android.os.*;
+import android.text.InputType;
+import android.view.*;
+import android.widget.*;
+
+import java.util.*;
+
+public class MainActivity extends Activity {
+    private static final int REQ_AUDIO = 7;
+    private static final int SAMPLE_RATE = 48000;
+    private static final String PREF = "clickdose_prefs";
+    private enum Mode { IDLE, COUNTING, CALIBRATING_NOISE, CALIBRATING_CLICKS, MEASURE_FULL }
+
+    private volatile boolean audioActive = false;
+    private volatile Mode mode = Mode.IDLE;
+    private Thread audioThread;
+
+    private int count = 0;
+    private long lastClickNs = 0;
+    private double noiseAvgJump = 180.0;
+    private double calibratedClickPeak = 2600.0;
+    private double threshold = 1000.0;
+    private int cooldownMs = 80;
+    private double thresholdFactor = 0.38;
+    private double latestPeak = 0.0;
+    private double latestAvgJump = 0.0;
+    private long calibrationStartNs = 0;
+    private final ArrayList<Double> clickCalibrationPeaks = new ArrayList<>();
+    private final ArrayList<Long> clickCalibrationTimes = new ArrayList<>();
+
+    private double strengthMg = 2.4;
+    private int dosesPerPen = 4;
+    private int fullClickDoses = 74;
+    private int remainingClicks = 296;
+    private double targetMg = 1.2;
+    private int targetClicks = 37;
+    private boolean targetReachedBuzzed = false;
+    private String language = "de";
+    private String injectionHistory = "";
+
+    private final int bg = Color.rgb(9,9,11);
+    private final int card = Color.rgb(22,22,25);
+    private final int card2 = Color.rgb(31,31,36);
+    private final int ink = Color.rgb(246,246,248);
+    private final int muted = Color.rgb(153,153,162);
+    private final int track = Color.rgb(43,43,49);
+    private final int accent = Color.rgb(124,255,178);
+    private final int warn = Color.rgb(255,184,107);
+    private final int blue = Color.rgb(126,147,255);
+
+    private TextView restBigView, restSubView, centerMainView, centerSubView, centerTinyView, statusView;
+    private TextView leftStatView, rightStatView;
+    private SegmentedRingView penRing, doseRing;
+    private Button primaryButton, minusButton, plusButton;
+
+    private TextView fullCountView, fullSubView, fullHintView;
+    private SegmentedRingView fullRing;
+    private Button fullPrimaryButton, fullMinusButton, fullPlusButton, fullBackButton;
+
+    @Override public void onCreate(Bundle b) {
+        super.onCreate(b);
+        loadPrefs();
+        recomputeTarget();
+        recomputeThreshold();
+        buildHomeUi();
+        refreshUi();
+        if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
+        }
+    }
+
+    private void buildHomeUi() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(bg);
+        root.setPadding(dp(20), dp(22), dp(20), dp(18) + bottomInsetPx());
+        root.setClipToPadding(false);
+        setContentView(root);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout titleBox = new LinearLayout(this);
+        titleBox.setOrientation(LinearLayout.VERTICAL);
+        TextView title = text("ClickDose", 29, ink, true);
+        title.setIncludeFontPadding(false);
+        TextView sub = text("Wegovy 2.4", 14, muted, false);
+        titleBox.addView(title);
+        titleBox.addView(sub);
+        top.addView(titleBox, new LinearLayout.LayoutParams(0, -2, 1));
+        Button gear = ghostButton("⚙"); gear.setTextSize(22); gear.setOnClickListener(v -> showProfileDialog());
+        top.addView(gear, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        root.addView(top);
+
+        LinearLayout stage = roundedBox(card, 30, dp(18));
+        LinearLayout.LayoutParams stageLp = new LinearLayout.LayoutParams(-1, 0, 1);
+        stageLp.setMargins(0, dp(18), 0, dp(12));
+        root.addView(stage, stageLp);
+
+        TextView label = text("AKTUELLER PEN", 11, muted, true);
+        label.setLetterSpacing(0.12f); label.setGravity(Gravity.CENTER);
+        stage.addView(label, new LinearLayout.LayoutParams(-1, -2));
+        restBigView = text("296", 49, ink, true);
+        restBigView.setGravity(Gravity.CENTER); restBigView.setIncludeFontPadding(false);
+        stage.addView(restBigView, new LinearLayout.LayoutParams(-1, -2));
+        restSubView = text("Klicks übrig", 14, muted, false);
+        restSubView.setGravity(Gravity.CENTER);
+        stage.addView(restSubView);
+
+        FrameLayout frame = new FrameLayout(this);
+        penRing = new SegmentedRingView(this);
+        penRing.segments = 99; penRing.strokeDp = 11; penRing.trackColor = track; penRing.progressColor = accent;
+        doseRing = new SegmentedRingView(this);
+        doseRing.segments = 74; doseRing.strokeDp = 6; doseRing.trackColor = Color.rgb(35,35,40); doseRing.progressColor = blue;
+        frame.addView(penRing, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        FrameLayout inner = new FrameLayout(this);
+        inner.setPadding(dp(36), dp(36), dp(36), dp(36));
+        inner.addView(doseRing, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        frame.addView(inner, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+
+        LinearLayout center = new LinearLayout(this);
+        center.setOrientation(LinearLayout.VERTICAL); center.setGravity(Gravity.CENTER);
+        centerMainView = text("37 Klicks", 34, ink, true);
+        centerMainView.setGravity(Gravity.CENTER); centerMainView.setIncludeFontPadding(false);
+        centerSubView = text("heute · 1.20 mg", 15, accent, true); centerSubView.setGravity(Gravity.CENTER);
+        centerTinyView = text("wird live gezählt", 12, muted, false); centerTinyView.setGravity(Gravity.CENTER);
+        center.addView(centerMainView); center.addView(centerSubView); center.addView(centerTinyView);
+        frame.addView(center, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        stage.addView(frame, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        LinearLayout stats = new LinearLayout(this); stats.setOrientation(LinearLayout.HORIZONTAL);
+        leftStatView = statCard("Rest\n296 von 296");
+        rightStatView = statCard("Heute\n37 Klicks");
+        stats.addView(leftStatView, new LinearLayout.LayoutParams(0, dp(72), 1));
+        Space sp = new Space(this); stats.addView(sp, new LinearLayout.LayoutParams(dp(10), 1));
+        stats.addView(rightStatView, new LinearLayout.LayoutParams(0, dp(72), 1));
+        stage.addView(stats, new LinearLayout.LayoutParams(-1, -2));
+
+        statusView = text("Bereit", 13, muted, false);
+        statusView.setGravity(Gravity.CENTER);
+        root.addView(statusView, new LinearLayout.LayoutParams(-1, -2));
+
+        primaryButton = pillButton("37 Klicks einstellen", accent, Color.rgb(4,23,14));
+        primaryButton.setTextSize(17);
+        primaryButton.setOnClickListener(v -> startDoseCountingFullscreen());
+        root.addView(primaryButton, new LinearLayout.LayoutParams(-1, dp(58)));
+
+        LinearLayout bottom = roundedBox(Color.rgb(18,18,21), 28, dp(5));
+        bottom.setOrientation(LinearLayout.HORIZONTAL); bottom.setGravity(Gravity.CENTER);
+        String[] items = {tr("calibrate"), tr("target"), tr("history"), tr("more")};
+        for (String n : items) {
+            Button b = ghostButton(n); b.setTextSize(12);
+            if (n.equals(tr("calibrate"))) b.setOnClickListener(v -> startCalibrationFullscreen());
+            else if (n.equals(tr("target"))) b.setOnClickListener(v -> showTargetDialog());
+            else if (n.equals(tr("history"))) b.setOnClickListener(v -> showHistoryDialog());
+            else b.setOnClickListener(v -> showMoreDialog());
+            bottom.addView(b, new LinearLayout.LayoutParams(0, dp(50), 1));
+        }
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, dp(60)); blp.setMargins(0, dp(12), 0, 0);
+        root.addView(bottom, blp);
+    }
+
+    private void buildCounterUi(String title, String subtitle) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(bg);
+        root.setPadding(dp(20), dp(22), dp(20), dp(18) + bottomInsetPx());
+        root.setClipToPadding(false);
+        setContentView(root);
+
+        LinearLayout top = new LinearLayout(this); top.setOrientation(LinearLayout.HORIZONTAL); top.setGravity(Gravity.CENTER_VERTICAL);
+        fullBackButton = ghostButton("‹"); fullBackButton.setTextSize(34); fullBackButton.setOnClickListener(v -> { mode=Mode.IDLE; stopAudio(); buildHomeUi(); refreshUi(); });
+        top.addView(fullBackButton, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        LinearLayout texts = new LinearLayout(this); texts.setOrientation(LinearLayout.VERTICAL);
+        TextView t = text(title, 23, ink, true); t.setIncludeFontPadding(false);
+        TextView s = text(subtitle, 13, muted, false);
+        texts.addView(t); texts.addView(s);
+        top.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+        root.addView(top);
+
+        FrameLayout frame = new FrameLayout(this);
+        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(-1, 0, 1); flp.setMargins(0, dp(18), 0, dp(12));
+        fullRing = new SegmentedRingView(this);
+        fullRing.strokeDp = 14; fullRing.trackColor = track; fullRing.progressColor = accent; fullRing.segments = Math.max(8, Math.min(96, targetClicks));
+        frame.addView(fullRing, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        LinearLayout center = new LinearLayout(this); center.setOrientation(LinearLayout.VERTICAL); center.setGravity(Gravity.CENTER);
+        fullCountView = text("0", 78, ink, true); fullCountView.setGravity(Gravity.CENTER); fullCountView.setIncludeFontPadding(false);
+        fullSubView = text("/ " + targetClicks, 28, muted, true); fullSubView.setGravity(Gravity.CENTER);
+        fullHintView = text("Drehen bis Ziel erreicht ist", 15, muted, false); fullHintView.setGravity(Gravity.CENTER);
+        center.addView(fullCountView); center.addView(fullSubView); center.addView(fullHintView);
+        frame.addView(center, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        root.addView(frame, flp);
+
+        LinearLayout adjust = new LinearLayout(this); adjust.setOrientation(LinearLayout.HORIZONTAL); adjust.setGravity(Gravity.CENTER);
+        fullMinusButton = smallRoundButton("−1"); fullMinusButton.setOnClickListener(v -> { count=Math.max(0,count-1); targetReachedBuzzed=false; refreshUi(); });
+        fullPrimaryButton = pillButton("Zählen stoppen", card2, ink); fullPrimaryButton.setTextSize(17); fullPrimaryButton.setOnClickListener(v -> handleFullPrimaryPress());
+        fullPlusButton = smallRoundButton("+1"); fullPlusButton.setOnClickListener(v -> { count++; checkTargetFeedback(); refreshUi(); });
+        adjust.addView(fullMinusButton, new LinearLayout.LayoutParams(dp(60), dp(60)));
+        LinearLayout.LayoutParams mid = new LinearLayout.LayoutParams(0, dp(60), 1); mid.setMargins(dp(12),0,dp(12),0);
+        adjust.addView(fullPrimaryButton, mid);
+        adjust.addView(fullPlusButton, new LinearLayout.LayoutParams(dp(60), dp(60)));
+        root.addView(adjust);
+    }
+
+    private void startDoseCountingFullscreen() {
+        if (!ensurePermission()) return;
+        recomputeTarget(); savePrefs();
+        count = 0; lastClickNs = 0; targetReachedBuzzed = false; recomputeThreshold();
+        mode = Mode.COUNTING;
+        buildCounterUi("Dose einstellen", targetClicks + " Klicks Ziel · " + String.format(Locale.US, "%.2f mg", targetMg));
+        startAudioIfNeeded();
+        refreshUi();
+    }
+
+    private void startCalibrationFullscreen() {
+        if (!ensurePermission()) return;
+        count = 0; targetReachedBuzzed=false; clickCalibrationPeaks.clear(); clickCalibrationTimes.clear();
+        calibrationStartNs=System.nanoTime(); lastClickNs=0;
+        mode=Mode.CALIBRATING_NOISE;
+        buildCounterUi("Kalibrieren", "erst still halten, dann 5–10 Klicks");
+        startAudioIfNeeded();
+        refreshUi();
+    }
+
+    private void startFullDoseMeasureFullscreen() {
+        if (!ensurePermission()) return;
+        count = 0; lastClickNs = 0; targetReachedBuzzed = false; recomputeThreshold();
+        mode = Mode.MEASURE_FULL;
+        buildCounterUi("Volldosis messen", "Pen bis Anschlag drehen");
+        startAudioIfNeeded();
+        refreshUi();
+    }
+
+    private void handleFullPrimaryPress() {
+        if (mode == Mode.COUNTING && count >= targetClicks) { saveDoseAndSubtract(); buildHomeUi(); refreshUi(); return; }
+        if (mode == Mode.MEASURE_FULL && count > 10) {
+            fullClickDoses = count;
+            remainingClicks = Math.min(remainingClicks, fullClickDoses * dosesPerPen);
+            recomputeTarget(); savePrefs();
+            mode = Mode.IDLE; stopAudio(); buildHomeUi(); refreshUi(); return;
+        }
+        mode = Mode.IDLE; stopAudio(); buildHomeUi(); refreshUi();
+    }
+
+    private void showTargetDialog() {
+        LinearLayout box = dialogBox();
+        box.addView(text("Tagesziel", 24, ink, true));
+        box.addView(text("Der aktive Plan ist lokal. Später kommt er vom Server.", 13, muted, false));
+        EditText dose = input(String.format(Locale.US, "%.2f", targetMg), "mg");
+        box.addView(labelled("Zieldosis mg", dose));
+        LinearLayout quick = new LinearLayout(this); quick.setOrientation(LinearLayout.HORIZONTAL);
+        double[] qs = {0.6, 0.9, 1.2, 1.7, 2.4};
+        for (double q : qs) {
+            Button b = ghostButton(String.format(Locale.US, q==Math.round(q)?"%.0f":"%.1f", q));
+            b.setOnClickListener(v -> dose.setText(((Button)v).getText()));
+            quick.addView(b, new LinearLayout.LayoutParams(0, dp(46), 1));
+        }
+        box.addView(quick);
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+                .setView(box)
+                .setPositiveButton("Übernehmen", (d,w) -> { targetMg=readDouble(dose,targetMg); recomputeTarget(); savePrefs(); refreshUi(); })
+                .setNegativeButton("Abbrechen", null).show();
+    }
+
+    private void showProfileDialog() {
+        LinearLayout box = dialogBox(); box.addView(text("Pen-Profil", 24, ink, true));
+        EditText strength = input(String.valueOf(strengthMg), "Volldosis mg");
+        EditText doses = input(String.valueOf(dosesPerPen), "Dosen pro Pen");
+        EditText full = input(String.valueOf(fullClickDoses), "Klicks pro Volldosis");
+        EditText rest = input(String.valueOf(remainingClicks), "Restklicks im Pen");
+        box.addView(labelled("Volldosis", strength)); box.addView(labelled("Dosen pro Pen", doses)); box.addView(labelled("Klicks pro Volldosis", full)); box.addView(labelled("Aktueller Rest", rest));
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box)
+                .setPositiveButton("Speichern", (d,w)->{ strengthMg=readDouble(strength,strengthMg); dosesPerPen=Math.max(1,readInt(doses,dosesPerPen)); fullClickDoses=Math.max(1,readInt(full,fullClickDoses)); int max=fullClickDoses*dosesPerPen; remainingClicks=Math.max(0,Math.min(max,readInt(rest,remainingClicks))); recomputeTarget(); savePrefs(); refreshUi(); })
+                .setNegativeButton("Abbrechen", null).show();
+    }
+
+    private void showPlannerDialog() {
+        int total = fullClickDoses * dosesPerPen;
+        double mgPerClick = strengthMg / Math.max(1, fullClickDoses);
+        LinearLayout box = dialogBox(); box.addView(text("Restfrei-Vorschläge", 24, ink, true));
+        box.addView(text("Rechnerisch, keine medizinische Empfehlung.", 13, muted, false));
+        int base = remainingClicks > 0 ? remainingClicks : total;
+        for (int weeks=4; weeks<=12; weeks++) {
+            int low = base / weeks; int extra = base % weeks;
+            if (low < 1) break;
+            String plan = extra==0 ? String.format(Locale.US, "%d Wochen · %d Klicks/Woche · %.2f mg", weeks, low, low*mgPerClick) : String.format(Locale.US, "%d Wochen · %dx%d + %dx%d Klicks · Ø %.2f mg", weeks, weeks-extra, low, extra, low+1, (base/(double)weeks)*mgPerClick);
+            TextView row = text(plan, 15, ink, false); row.setPadding(dp(12),dp(10),dp(12),dp(10)); row.setBackground(round(card2,18));
+            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, dp(54)); rlp.setMargins(0, dp(6), 0, 0); box.addView(row, rlp);
+        }
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box).setPositiveButton("OK", null).show();
+    }
+
+
+    private void showHistoryDialog() {
+        LinearLayout box = dialogBox();
+        box.addView(text(tr("history_title"), 24, ink, true));
+        box.addView(text(tr("history_hint"), 13, muted, false));
+        if (injectionHistory == null || injectionHistory.trim().isEmpty()) {
+            TextView empty = text(tr("history_empty"), 15, muted, false);
+            empty.setPadding(dp(12), dp(18), dp(12), dp(18));
+            box.addView(empty);
+        } else {
+            String[] rows = injectionHistory.split("\\n");
+            int shown = 0;
+            for (int i = rows.length - 1; i >= 0 && shown < 12; i--) {
+                String row = rows[i];
+                if (row.trim().isEmpty()) continue;
+                String[] parts = row.split("\\|");
+                String display;
+                if (parts.length >= 6) {
+                    display = parts[0] + "  " + parts[1] + "\n" + parts[2] + " " + tr("clicks") + " · " + parts[3] + " mg · " + tr("rest") + ": " + parts[5];
+                } else display = row;
+                TextView tv = text(display, 15, ink, true);
+                tv.setPadding(dp(14), dp(10), dp(14), dp(10));
+                tv.setBackground(round(card2, 18));
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(66));
+                lp.setMargins(0, dp(8), 0, 0);
+                box.addView(tv, lp);
+                shown++;
+            }
+        }
+        Button clear = pillButton(tr("clear_history"), card2, ink);
+        clear.setOnClickListener(v -> { injectionHistory = ""; savePrefs(); Toast.makeText(this, tr("history_cleared"), Toast.LENGTH_SHORT).show(); });
+        box.addView(clear, new LinearLayout.LayoutParams(-1, dp(52)));
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box).setPositiveButton("OK", null).show();
+    }
+
+    private void showLanguageDialog() {
+        final String[] opts = {"Deutsch", "English"};
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+                .setTitle("Language / Sprache")
+                .setSingleChoiceItems(opts, language.equals("en") ? 1 : 0, (d, which) -> {
+                    language = which == 1 ? "en" : "de";
+                    savePrefs();
+                    d.dismiss();
+                    buildHomeUi();
+                    refreshUi();
+                })
+                .setNegativeButton(tr("cancel"), null)
+                .show();
+    }
+
+    private void showMoreDialog() {
+        LinearLayout box = dialogBox(); box.addView(text(tr("more_title"), 24, ink, true));
+        Button planner = pillButton(tr("planner"), card2, ink); planner.setOnClickListener(v -> showPlannerDialog()); box.addView(planner, new LinearLayout.LayoutParams(-1, dp(52)));
+        Button measure = pillButton(tr("measure_full"), card2, ink); measure.setOnClickListener(v -> startFullDoseMeasureFullscreen()); box.addView(measure, new LinearLayout.LayoutParams(-1, dp(52)));
+        Button newPen = pillButton(tr("new_pen"), card2, ink); newPen.setOnClickListener(v -> { remainingClicks=fullClickDoses*dosesPerPen; savePrefs(); refreshUi(); }); box.addView(newPen, new LinearLayout.LayoutParams(-1, dp(52)));
+        Button lang = pillButton("Language / Sprache", card2, ink); lang.setOnClickListener(v -> showLanguageDialog()); box.addView(lang, new LinearLayout.LayoutParams(-1, dp(52)));
+        TextView dbg = text(String.format(Locale.US,"Peak %.0f · Noise %.1f · Threshold %.0f · Cooldown %d ms", latestPeak, noiseAvgJump, threshold, cooldownMs), 12, muted, false); box.addView(dbg);
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box).setPositiveButton("OK", null).show();
+    }
+
+    private void refreshUi() {
+        int total = Math.max(1, fullClickDoses * dosesPerPen);
+        double mgPerClick = strengthMg / Math.max(1, fullClickDoses);
+        double remMg = remainingClicks * mgPerClick;
+
+        if (restBigView != null) {
+            restBigView.setText(String.valueOf(remainingClicks));
+            restSubView.setText(String.format(Locale.US, "Klicks übrig · ca. %.2f mg", remMg));
+            centerMainView.setText(String.format(Locale.US, "%d Klicks", targetClicks));
+            centerSubView.setText(String.format(Locale.US, "heute · %.2f mg", targetMg));
+            centerTinyView.setText("wird live gezählt");
+            penRing.progress = Math.max(0f, Math.min(1f, remainingClicks/(float)total));
+            penRing.segments = Math.min(160, Math.max(24, total/3));
+            penRing.invalidate();
+            doseRing.progress = Math.max(0f, Math.min(1f, targetClicks/(float)Math.max(1, fullClickDoses)));
+            doseRing.segments = Math.max(8, Math.min(96, fullClickDoses));
+            doseRing.invalidate();
+            leftStatView.setText(String.format(Locale.US,"Rest\n%d von %d", remainingClicks, total));
+            rightStatView.setText(String.format(Locale.US,"Heute\n%d Klicks", targetClicks));
+            primaryButton.setText(String.format(Locale.US, "%d Klicks einstellen", targetClicks));
+        }
+
+        if (fullRing != null) {
+            if (mode == Mode.COUNTING) {
+                fullCountView.setText(String.valueOf(count));
+                fullSubView.setText("/ " + targetClicks);
+                if (count < targetClicks) fullHintView.setText((targetClicks-count) + " Klicks bis Ziel");
+                else if (count == targetClicks) fullHintView.setText("Ziel erreicht");
+                else fullHintView.setText("über Ziel · mit −1 korrigieren");
+                fullRing.segments = Math.max(8, Math.min(96, targetClicks));
+                fullRing.progress = Math.max(0f, Math.min(1.15f, count/(float)Math.max(1,targetClicks)));
+                fullRing.progressColor = count>targetClicks ? warn : accent;
+                fullPrimaryButton.setText(count>=targetClicks ? "Dosis speichern" : "Zählen stoppen");
+                fullPrimaryButton.setBackground(round(count>=targetClicks ? accent : card2, 28));
+                fullPrimaryButton.setTextColor(count>=targetClicks ? Color.rgb(4,23,14) : ink);
+            } else if (mode == Mode.MEASURE_FULL) {
+                fullCountView.setText(String.valueOf(count));
+                fullSubView.setText("Klicks");
+                fullHintView.setText("bei Anschlag speichern");
+                fullRing.segments = Math.max(8, Math.min(96, fullClickDoses));
+                fullRing.progress = Math.max(0f, Math.min(1.15f, count/(float)Math.max(1, fullClickDoses)));
+                fullRing.progressColor = blue;
+                fullPrimaryButton.setText(count>10 ? "Als Volldosis speichern" : "Zählen stoppen");
+            } else if (mode == Mode.CALIBRATING_NOISE || mode == Mode.CALIBRATING_CLICKS) {
+                fullCountView.setText(String.valueOf(count));
+                fullSubView.setText("/ 10");
+                fullHintView.setText(mode==Mode.CALIBRATING_NOISE ? "still halten …" : "jetzt Klicks drehen …");
+                fullRing.segments = 10;
+                fullRing.progress = Math.max(0f, Math.min(1f, count/10f));
+                fullRing.progressColor = blue;
+                fullPrimaryButton.setText("Abbrechen");
+            }
+            fullRing.invalidate();
+        }
+    }
+
+    private void saveDoseAndSubtract() {
+        if (count <= 0) return;
+        int used = count;
+        double mg = used * strengthMg / Math.max(1, fullClickDoses);
+        int restAfter = Math.max(0, remainingClicks - used);
+        java.text.SimpleDateFormat df = new java.text.SimpleDateFormat("yyyy-MM-dd|HH:mm", Locale.getDefault());
+        String stamp = df.format(new java.util.Date());
+        injectionHistory = (injectionHistory == null ? "" : injectionHistory) + stamp + "|" + used + "|" + String.format(Locale.US, "%.2f", mg) + "|" + (fullClickDoses*dosesPerPen) + "|" + restAfter + "\n";
+        remainingClicks = restAfter;
+        count = 0; targetReachedBuzzed=false; mode=Mode.IDLE; stopAudio(); savePrefs();
+    }
+
+    private boolean ensurePermission(){ if(Build.VERSION.SDK_INT>=23 && checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){ requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},REQ_AUDIO); return false;} return true; }
+    private void startAudioIfNeeded(){ if(audioActive)return; audioActive=true; audioThread=new Thread(this::audioLoop,"ClickDoseAudio"); audioThread.start(); }
+    private void stopAudio(){ audioActive=false; }
+    private void recomputeTarget(){ targetClicks=(int)Math.round(fullClickDoses*targetMg/Math.max(0.001,strengthMg)); if(targetClicks<1)targetClicks=1; }
+    private void recomputeThreshold(){ threshold=Math.max(calibratedClickPeak*thresholdFactor, noiseAvgJump*9.0+450.0); }
+    private double median(ArrayList<Double> v){ if(v.isEmpty())return 0; ArrayList<Double> c=new ArrayList<>(v); Collections.sort(c); return c.get(c.size()/2); }
+
+    private void finishCalibration(){
+        if(!clickCalibrationPeaks.isEmpty()) calibratedClickPeak=median(clickCalibrationPeaks);
+        if(clickCalibrationTimes.size()>=2){ ArrayList<Double> gaps=new ArrayList<>(); for(int i=1;i<clickCalibrationTimes.size();i++)gaps.add((clickCalibrationTimes.get(i)-clickCalibrationTimes.get(i-1))/1_000_000.0); double gap=median(gaps); cooldownMs=(int)Math.max(55,Math.min(130,gap*0.45)); } else cooldownMs=80;
+        recomputeThreshold(); mode=Mode.IDLE; savePrefs();
+        runOnUiThread(() -> { buildHomeUi(); refreshUi(); Toast.makeText(this, "Kalibriert: "+clickCalibrationPeaks.size()+" Klicks", Toast.LENGTH_SHORT).show(); });
+    }
+
+    private void audioLoop(){
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
+        int min=AudioRecord.getMinBufferSize(SAMPLE_RATE,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT);
+        int bufferSize=Math.max(min,512);
+        int source=Build.VERSION.SDK_INT>=24?MediaRecorder.AudioSource.UNPROCESSED:MediaRecorder.AudioSource.VOICE_RECOGNITION;
+        AudioRecord rec=null;
+        try{
+            rec=new AudioRecord(source,SAMPLE_RATE,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,bufferSize*4);
+            short[] buf=new short[bufferSize]; int prev=0; rec.startRecording();
+            while(audioActive){
+                int n=rec.read(buf,0,buf.length); if(n<=0)continue; double peak=0,sum=0;
+                for(int i=0;i<n;i++){ int x=buf[i]; double jump=Math.abs(x-prev); prev=x; if(jump>peak)peak=jump; sum+=jump; }
+                latestPeak=peak; latestAvgJump=sum/Math.max(1,n); long now=System.nanoTime();
+                if(mode==Mode.CALIBRATING_NOISE){ noiseAvgJump=noiseAvgJump*0.92+latestAvgJump*0.08; if(now-calibrationStartNs>2_000_000_000L){ calibrationStartNs=now; lastClickNs=0; mode=Mode.CALIBRATING_CLICKS; runOnUiThread(this::refreshUi); }}
+                else if(mode==Mode.CALIBRATING_CLICKS){ double rough=Math.max(noiseAvgJump*12.0+600.0,900.0); if(now-lastClickNs>65_000_000L && peak>rough){ lastClickNs=now; clickCalibrationPeaks.add(peak); clickCalibrationTimes.add(now); count=clickCalibrationPeaks.size(); runOnUiThread(this::refreshUi);} if(now-calibrationStartNs>6_000_000_000L) finishCalibration(); }
+                else if(mode==Mode.COUNTING||mode==Mode.MEASURE_FULL){ if(peak<threshold*0.55){ noiseAvgJump=noiseAvgJump*0.995+latestAvgJump*0.005; recomputeThreshold(); } if(now-lastClickNs>cooldownMs*1_000_000L && peak>threshold){ lastClickNs=now; count++; runOnUiThread(() -> { checkTargetFeedback(); refreshUi(); }); }}
+            }
+        } catch(Throwable t){ runOnUiThread(() -> Toast.makeText(this, "Audio-Fehler: "+t.getMessage(), Toast.LENGTH_LONG).show()); }
+        finally{ try{ if(rec!=null) rec.stop(); }catch(Exception ignored){} try{ if(rec!=null) rec.release(); }catch(Exception ignored){} audioActive=false; }
+    }
+
+    private void checkTargetFeedback(){ if(mode==Mode.COUNTING&&!targetReachedBuzzed&&count>=targetClicks){ targetReachedBuzzed=true; vibrate(count==targetClicks?180:420); } }
+    private void vibrate(int ms){ try{ Vibrator v=(Vibrator)getSystemService(Context.VIBRATOR_SERVICE); if(v==null)return; if(Build.VERSION.SDK_INT>=26)v.vibrate(VibrationEffect.createOneShot(ms,VibrationEffect.DEFAULT_AMPLITUDE)); else v.vibrate(ms);}catch(Exception ignored){} }
+
+    private TextView text(String s,int sp,int color,boolean bold){ TextView t=new TextView(this); t.setText(s); t.setTextSize(sp); t.setTextColor(color); if(bold)t.setTypeface(Typeface.DEFAULT,Typeface.BOLD); t.setPadding(0,dp(3),0,dp(3)); return t; }
+    private TextView statCard(String s){ TextView t=text(s,14,ink,true); t.setGravity(Gravity.CENTER); t.setBackground(round(card2,22)); return t; }
+    private LinearLayout roundedBox(int color,int radius,int pad){ LinearLayout l=new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.setPadding(pad,pad,pad,pad); l.setBackground(round(color,radius)); return l; }
+    private GradientDrawable round(int color,int radius){ GradientDrawable g=new GradientDrawable(); g.setColor(color); g.setCornerRadius(dp(radius)); return g; }
+    private Button ghostButton(String s){ Button b=new Button(this); b.setText(s); b.setAllCaps(false); b.setTextColor(ink); b.setBackground(round(Color.TRANSPARENT,22)); b.setPadding(0,0,0,0); return b; }
+    private Button smallRoundButton(String s){ Button b=ghostButton(s); b.setTextSize(21); b.setTypeface(Typeface.DEFAULT,Typeface.BOLD); b.setBackground(round(card2,30)); return b; }
+    private Button pillButton(String s,int bgc,int tc){ Button b=new Button(this); b.setText(s); b.setTextColor(tc); b.setAllCaps(false); b.setTypeface(Typeface.DEFAULT,Typeface.BOLD); b.setBackground(round(bgc,30)); return b; }
+    private LinearLayout dialogBox(){ LinearLayout b=new LinearLayout(this); b.setOrientation(LinearLayout.VERTICAL); b.setPadding(dp(22),dp(18),dp(22),dp(8)); b.setBackgroundColor(bg); return b; }
+    private LinearLayout labelled(String label, EditText input){ LinearLayout l=new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); TextView tv=text(label,12,muted,true); l.addView(tv); l.addView(input); return l; }
+    private EditText input(String value,String hint){ EditText e=new EditText(this); e.setText(value); e.setHint(hint); e.setTextColor(ink); e.setHintTextColor(muted); e.setSingleLine(true); e.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL); return e; }
+    private int bottomInsetPx(){
+        if (Build.VERSION.SDK_INT >= 23) {
+            WindowInsets insets = getWindow().getDecorView().getRootWindowInsets();
+            if (insets != null) {
+                if (Build.VERSION.SDK_INT >= 30) {
+                    return insets.getInsets(WindowInsets.Type.navigationBars()).bottom;
+                }
+                return insets.getStableInsetBottom();
+            }
+        }
+        int id = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+        return id > 0 ? getResources().getDimensionPixelSize(id) : dp(24);
+    }
+    private int dp(int v){ return (int)(v*getResources().getDisplayMetrics().density+0.5f); }
+
+    private String tr(String key) {
+        boolean en = "en".equals(language);
+        if (en) {
+            switch (key) {
+                case "calibrate": return "Calibrate";
+                case "target": return "Target";
+                case "history": return "History";
+                case "more": return "More";
+                case "planner": return "Planner";
+                case "clicks": return "clicks";
+                case "rest": return "Rest";
+                case "history_title": return "Injection log";
+                case "history_hint": return "Stored locally: date, time, clicks, calculated mg and remaining pen clicks.";
+                case "history_empty": return "No saved doses yet.";
+                case "clear_history": return "Clear history";
+                case "history_cleared": return "History cleared";
+                case "cancel": return "Cancel";
+                case "more_title": return "More";
+                case "measure_full": return "Measure full-dose clicks";
+                case "new_pen": return "New full pen";
+            }
+        } else {
+            switch (key) {
+                case "calibrate": return "Kalibrieren";
+                case "target": return "Ziel";
+                case "history": return "Protokoll";
+                case "more": return "Mehr";
+                case "planner": return "Planner";
+                case "clicks": return "Klicks";
+                case "rest": return "Rest";
+                case "history_title": return "Protokoll";
+                case "history_hint": return "Lokal gespeichert: Datum, Zeit, Klicks, berechnete mg und Restklicks im Pen.";
+                case "history_empty": return "Noch keine gespeicherte Dosis.";
+                case "clear_history": return "Protokoll löschen";
+                case "history_cleared": return "Protokoll gelöscht";
+                case "cancel": return "Abbrechen";
+                case "more_title": return "Mehr";
+                case "measure_full": return "Volldosis-Klicks messen";
+                case "new_pen": return "Neuer voller Pen";
+            }
+        }
+        return key;
+    }
+
+    private double readDouble(EditText e,double f){ try{return Double.parseDouble(e.getText().toString().replace(',','.'));}catch(Exception x){return f;} }
+    private int readInt(EditText e,int f){ try{return (int)Math.round(Double.parseDouble(e.getText().toString().replace(',','.')));}catch(Exception x){return f;} }
+    private void loadPrefs(){ SharedPreferences p=getSharedPreferences(PREF,MODE_PRIVATE); strengthMg=Double.longBitsToDouble(p.getLong("strength",Double.doubleToLongBits(2.4))); dosesPerPen=p.getInt("doses",4); fullClickDoses=p.getInt("fullClicks",74); remainingClicks=p.getInt("remaining",fullClickDoses*dosesPerPen); targetMg=Double.longBitsToDouble(p.getLong("target",Double.doubleToLongBits(1.2))); thresholdFactor=Double.longBitsToDouble(p.getLong("factor",Double.doubleToLongBits(0.38))); noiseAvgJump=Double.longBitsToDouble(p.getLong("noise",Double.doubleToLongBits(180.0))); calibratedClickPeak=Double.longBitsToDouble(p.getLong("clickPeak",Double.doubleToLongBits(2600.0))); cooldownMs=p.getInt("cooldown",80); language=p.getString("language","de"); injectionHistory=p.getString("history",""); }
+    private void savePrefs(){ getSharedPreferences(PREF,MODE_PRIVATE).edit().putLong("strength",Double.doubleToLongBits(strengthMg)).putInt("doses",dosesPerPen).putInt("fullClicks",fullClickDoses).putInt("remaining",remainingClicks).putLong("target",Double.doubleToLongBits(targetMg)).putLong("factor",Double.doubleToLongBits(thresholdFactor)).putLong("noise",Double.doubleToLongBits(noiseAvgJump)).putLong("clickPeak",Double.doubleToLongBits(calibratedClickPeak)).putInt("cooldown",cooldownMs).putString("language",language).putString("history",injectionHistory).apply(); }
+    @Override protected void onDestroy(){ audioActive=false; super.onDestroy(); }
+
+    public class SegmentedRingView extends View {
+        public float progress = 0.75f; public int segments = 74; public int strokeDp = 10; public int trackColor = Color.DKGRAY; public int progressColor = accent;
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        public SegmentedRingView(Context c){ super(c); p.setStyle(Paint.Style.STROKE); p.setStrokeCap(Paint.Cap.ROUND); }
+        @Override protected void onDraw(Canvas c){
+            super.onDraw(c);
+            int w=getWidth(), h=getHeight();
+            float stroke=dp(strokeDp);
+            p.setStrokeWidth(stroke);
+
+            // Keep the ring perfectly circular on devices such as the Galaxy S21.
+            // The view may be laid out as a rectangle, so drawing must use a centered square.
+            float size = Math.min(w, h);
+            float left = (w - size) / 2f;
+            float top = (h - size) / 2f;
+            float pad = stroke / 2f + dp(5);
+            RectF r = new RectF(left + pad, top + pad, left + size - pad, top + size - pad);
+
+            float gap=Math.max(1.5f, 360f/Math.max(segments,1)*0.22f);
+            float sweep=360f/Math.max(segments,1)-gap;
+            int active=Math.round(Math.min(1f,Math.max(0f,progress))*segments);
+            for(int i=0;i<segments;i++){
+                p.setColor(i<active?progressColor:trackColor);
+                p.setAlpha(i<active?255:112);
+                c.drawArc(r,-90+i*(360f/segments)+gap/2,sweep,false,p);
+            }
+            p.setAlpha(255);
+        }
+    }
+}
