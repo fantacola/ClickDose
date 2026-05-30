@@ -399,19 +399,23 @@ public class MainActivity extends Activity {
 
         Button activate = pillButton(tr("activate_plan"), track, muted);
         activate.setEnabled(false);
+        activateBtn[0] = activate;
+        box.addView(activate, new LinearLayout.LayoutParams(-1, dp(52)));
+
+        AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+            .setView(box)
+            .setNegativeButton(tr("close"), null)
+            .create();
+
         activate.setOnClickListener(v -> {
             if (selectedMg[0] < 0) return;
             targetMg = selectedMg[0];
             recomputeTarget(); savePrefs(); refreshUi();
+            dlg.dismiss();
             Toast.makeText(this, String.format(tr("plan_activated_toast"), targetClicks), Toast.LENGTH_SHORT).show();
         });
-        activateBtn[0] = activate;
-        box.addView(activate, new LinearLayout.LayoutParams(-1, dp(52)));
 
-        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
-            .setView(box)
-            .setNegativeButton(tr("close"), null)
-            .show();
+        dlg.show();
     }
 
 
