@@ -139,12 +139,13 @@ public class MainActivity extends Activity {
         titleBox.setOrientation(LinearLayout.VERTICAL);
         TextView title = text("ClickDose", 29, ink, true);
         title.setIncludeFontPadding(false);
-        TextView sub = text(penName.isEmpty() ? tr("my_pen") : penName, 14, muted, false);
+        String penLabel = (penName.isEmpty() ? tr("my_pen") : penName) + "  ✏";
+        TextView sub = text(penLabel, 14, accent, false);
+        sub.setClickable(true);
+        sub.setOnClickListener(v -> showProfileDialog());
         titleBox.addView(title);
         titleBox.addView(sub);
         top.addView(titleBox, new LinearLayout.LayoutParams(0, -2, 1));
-        Button gear = ghostButton("⚙"); gear.setTextSize(22); gear.setOnClickListener(v -> showProfileDialog());
-        top.addView(gear, new LinearLayout.LayoutParams(dp(48), dp(48)));
         root.addView(top);
 
         LinearLayout stage = roundedBox(card, 30, dp(18));
