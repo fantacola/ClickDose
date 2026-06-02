@@ -1,4 +1,4 @@
-package com.clickdose.app;
+package com.clickplan.app;
 
 import android.Manifest;
 import android.app.*;
@@ -158,7 +158,7 @@ public class MainActivity extends Activity {
         top.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout titleBox = new LinearLayout(this);
         titleBox.setOrientation(LinearLayout.VERTICAL);
-        TextView title = text("ClickDose", 29, ink, true);
+        TextView title = text("ClickPlan", 29, ink, true);
         title.setIncludeFontPadding(false);
         String penLabel = (penName.isEmpty() ? tr("my_pen") : penName) + "  ✏";
         TextView sub = text(penLabel, 14, accent, false);
@@ -731,7 +731,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean ensurePermission(){ if(Build.VERSION.SDK_INT>=23 && checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){ requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},REQ_AUDIO); return false;} return true; }
-    private void startAudioIfNeeded(){ if(audioActive)return; audioActive=true; audioThread=new Thread(this::audioLoop,"ClickDoseAudio"); audioThread.start(); }
+    private void startAudioIfNeeded(){ if(audioActive)return; audioActive=true; audioThread=new Thread(this::audioLoop,"ClickPlanAudio"); audioThread.start(); }
     private void stopAudio(){ audioActive=false; uiHandler.removeCallbacks(measureDoneRunnable); }
     private void onMeasurePause(){ if(mode==Mode.MEASURE_FULL&&count>0&&fullPrimaryButton!=null){ fullPrimaryButton.setBackground(round(accent,28)); fullPrimaryButton.setTextColor(Color.rgb(4,23,14)); fullPrimaryButton.setText(tr("done")); } }
     private void recomputeTarget(){ targetClicks=(int)Math.round(fullClickDoses*targetMg/Math.max(0.001,strengthMg)); if(targetClicks<1)targetClicks=1; }
@@ -870,7 +870,7 @@ public class MainActivity extends Activity {
                 case "rest_change_warning": return "⚠ Only change this if you are correcting an error.";
                 case "plan": return "Plan";
                 case "close": return "Close";
-                case "onboarding_title": return "Welcome to ClickDose";
+                case "onboarding_title": return "Welcome to ClickPlan";
                 case "onboarding_msg": return "Let's set up your pen first so the plan fits perfectly.";
                 case "setup_pen": return "Set up pen →";
                 case "profile_setup_hint": return "Enter your pen's full dose and click count.";
@@ -975,7 +975,7 @@ public class MainActivity extends Activity {
                 case "rest_change_warning": return "⚠ Nur ändern wenn du einen Fehler korrigierst.";
                 case "plan": return "Plan";
                 case "close": return "Schliessen";
-                case "onboarding_title": return "Willkommen bei ClickDose";
+                case "onboarding_title": return "Willkommen bei ClickPlan";
                 case "onboarding_msg": return "Richte zuerst deinen Pen ein, damit der Plan perfekt passt.";
                 case "setup_pen": return "Pen einrichten →";
                 case "profile_setup_hint": return "Gib die Volldosis und Klickzahl deines Pens ein.";
