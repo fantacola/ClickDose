@@ -131,11 +131,17 @@ public class MainActivity extends Activity {
         EditText full = input(String.valueOf(fullClickDoses), tr("clicks_per_dose"));
         TextView clicksHint = text(tr("pen_clicks_hint"), 11, muted, false);
         clicksHint.setPadding(0, dp(2), 0, dp(6));
+        // Current weekly dose — defaults to full dose, editable for users already reducing
+        EditText weekly = input(String.valueOf(currentPlanClicks > 0 ? currentPlanClicks : fullClickDoses), tr("weekly_clicks_hint"));
+        TextView weeklyHint = text(tr("weekly_clicks_subhint"), 11, muted, false);
+        weeklyHint.setPadding(0, dp(2), 0, dp(6));
         box.addView(labelled(tr("pen_name_label"), name));
         box.addView(labelled(tr("full_dose_label"), strength));
         box.addView(labelled(tr("doses_per_pen"), doses));
         box.addView(labelled(tr("clicks_per_dose"), full));
         box.addView(clicksHint);
+        box.addView(labelled(tr("weekly_clicks_label"), weekly));
+        box.addView(weeklyHint);
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box)
             .setCancelable(false)
             .setPositiveButton(tr("done"), (d, w) -> {
@@ -145,7 +151,11 @@ public class MainActivity extends Activity {
                 fullClickDoses = Math.max(1, readInt(full, fullClickDoses));
                 remainingClicks = fullClickDoses * dosesPerPen;
                 targetMg = strengthMg; // user enters mg per injection, not total pen content
-                recomputeTarget();
+                recomputeTarget(); // sets targetClicks = fullClickDoses
+                // Override with user's actual current weekly dose (may be reduced)
+                int weeklyClicks = Math.max(1, Math.min(fullClickDoses, readInt(weekly, fullClickDoses)));
+                targetClicks = weeklyClicks;
+                targetMg = targetClicks * (strengthMg / Math.max(1, fullClickDoses));
                 currentPlanClicks = targetClicks;
                 // targetPlanClicks is the absolute floor — don't reset it on recalibration
                 planActive = true;
@@ -1034,6 +1044,9 @@ public class MainActivity extends Activity {
                 case "profile_title": return "Pen profile";
                 case "full_dose_label": return "Dose strength";
                 case "full_dose_hint": return "mg per injection (e.g. 2.4)";
+                case "weekly_clicks_label": return "This week's dose";
+                case "weekly_clicks_hint": return "clicks/week";
+                case "weekly_clicks_subhint": return "Already reducing? Enter your current weekly clicks. Otherwise leave as-is.";
                 case "doses_per_pen": return "Doses per pen";
                 case "clicks_per_dose": return "Clicks per full dose";
                 case "remaining_hint": return "Remaining clicks";
@@ -1152,6 +1165,9 @@ public class MainActivity extends Activity {
                 case "profile_title": return "Pen-Profil";
                 case "full_dose_label": return "Dosisstärke";
                 case "full_dose_hint": return "mg pro Injektion (z. B. 2.4)";
+                case "weekly_clicks_label": return "Dosis diese Woche";
+                case "weekly_clicks_hint": return "Klicks/Woche";
+                case "weekly_clicks_subhint": return "Bereits am Reduzieren? Aktuelle Wochenklicks eingeben. Sonst so lassen.";
                 case "doses_per_pen": return "Dosen pro Pen";
                 case "clicks_per_dose": return "Klicks pro Volldosis";
                 case "remaining_hint": return "Restklicks im Pen";
