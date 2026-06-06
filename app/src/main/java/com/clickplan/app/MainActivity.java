@@ -144,7 +144,7 @@ public class MainActivity extends Activity {
                 dosesPerPen = Math.max(1, readInt(doses, dosesPerPen));
                 fullClickDoses = Math.max(1, readInt(full, fullClickDoses));
                 remainingClicks = fullClickDoses * dosesPerPen;
-                targetMg = strengthMg / dosesPerPen;
+                targetMg = strengthMg; // user enters mg per injection, not total pen content
                 recomputeTarget();
                 currentPlanClicks = targetClicks;
                 // targetPlanClicks is the absolute floor — don't reset it on recalibration
@@ -1032,8 +1032,8 @@ public class MainActivity extends Activity {
                 case "target_dose_label": return "Target dose mg";
                 case "apply": return "Apply";
                 case "profile_title": return "Pen profile";
-                case "full_dose_label": return "Full dose";
-                case "full_dose_hint": return "Full dose mg";
+                case "full_dose_label": return "Dose strength";
+                case "full_dose_hint": return "mg per injection (e.g. 2.4)";
                 case "doses_per_pen": return "Doses per pen";
                 case "clicks_per_dose": return "Clicks per full dose";
                 case "remaining_hint": return "Remaining clicks";
@@ -1150,8 +1150,8 @@ public class MainActivity extends Activity {
                 case "target_dose_label": return "Zieldosis mg";
                 case "apply": return "Übernehmen";
                 case "profile_title": return "Pen-Profil";
-                case "full_dose_label": return "Volldosis";
-                case "full_dose_hint": return "Volldosis mg";
+                case "full_dose_label": return "Dosisstärke";
+                case "full_dose_hint": return "mg pro Injektion (z. B. 2.4)";
                 case "doses_per_pen": return "Dosen pro Pen";
                 case "clicks_per_dose": return "Klicks pro Volldosis";
                 case "remaining_hint": return "Restklicks im Pen";
