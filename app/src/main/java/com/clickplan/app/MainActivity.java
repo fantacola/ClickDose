@@ -49,6 +49,13 @@ public class MainActivity extends Activity {
     private double targetMg = 1.2;        // current week target (derived)
     private int targetClicks = 37;         // current week clicks (authoritative)
     private int penNumber = 1;             // pen counter — increments at new pen
+
+    // ── Plan model ───────────────────────────────────────────────────────────
+    // Dose changes only happen when starting a new pen.
+    private int currentPlanClicks = 37;    // clicks per week for current pen
+    private int targetPlanClicks = 37;     // long-term target (floor for reductions)
+    private boolean planActive = false;    // true once user has set a plan
+
     private boolean targetReachedBuzzed = false;
     private String language = "en";
     private String penName = "";
@@ -138,7 +145,11 @@ public class MainActivity extends Activity {
                 fullClickDoses = Math.max(1, readInt(full, fullClickDoses));
                 remainingClicks = fullClickDoses * dosesPerPen;
                 targetMg = strengthMg / dosesPerPen;
-                recomputeTarget(); savePrefs(); buildHomeUi(); refreshUi();
+                recomputeTarget();
+                currentPlanClicks = targetClicks;
+                targetPlanClicks = targetClicks;
+                planActive = true;
+                savePrefs(); buildHomeUi(); refreshUi();
                 new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
                     .setTitle(tr("calibrate_prompt_title"))
                     .setMessage(tr("calibrate_prompt_msg"))
@@ -603,25 +614,93 @@ public class MainActivity extends Activity {
     }
 
     private void confirmNewPen() {
-        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
-                .setTitle(tr("new_pen"))
+        // Step 1: ask keep or reduce
+        LinearLayout box = dialogBox();
+        box.addView(text(tr("new_pen"), 24, ink, true));
+        box.addView(text(tr("new_pen_plan_question"), 14, muted, false));
+
+        // Current plan info
+        double mgPerClick = strengthMg / Math.max(1, fullClickDoses);
+        int reducedClicks = Math.max(1, Math.max(targetPlanClicks, (int) Math.round(currentPlanClicks * 0.85)));
+        // Optimise for no-remainder against pen total
+        int total = fullClickDoses * dosesPerPen;
+        if (reducedClicks > 0 && total % reducedClicks != 0) {
+            // find nearest divisor with no remainder
+            for (int delta = 1; delta <= 5; delta++) {
+                if (total % (reducedClicks - delta) == 0) { reducedClicks = reducedClicks - delta; break; }
+                if (total % (reducedClicks + delta) == 0) { reducedClicks = reducedClicks + delta; break; }
+            }
+        }
+        final int finalReduced = Math.max(1, Math.max(targetPlanClicks, reducedClicks));
+
+        // Option cards
+        LinearLayout keepCard = optionCard(
+            "✓  " + tr("plan_keep"),
+            String.format(Locale.US, "%d " + tr("clicks") + "  ·  ~%.2f mg", currentPlanClicks, currentPlanClicks * mgPerClick),
+            accent);
+        LinearLayout reduceCard = optionCard(
+            "↓  " + tr("plan_reduce"),
+            String.format(Locale.US, "%d " + tr("clicks") + "  ·  ~%.2f mg", finalReduced, finalReduced * mgPerClick),
+            blue);
+
+        final boolean[] chooseReduce = {false};
+        keepCard.setOnClickListener(v -> { chooseReduce[0] = false; keepCard.setBackground(round(accent, 18)); keepCard.getChildAt(0).setAlpha(1f); reduceCard.setBackground(round(card2, 18)); });
+        reduceCard.setOnClickListener(v -> { chooseReduce[0] = true; reduceCard.setBackground(round(blue, 18)); keepCard.setBackground(round(card2, 18)); });
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, dp(10), 0, 0);
+        box.addView(keepCard, lp);
+        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(-1, -2);
+        lp2.setMargins(0, dp(8), 0, 0);
+        box.addView(reduceCard, lp2);
+
+        AlertDialog[] dlgRef = {null};
+        Button confirm = pillButton(tr("new_pen_start"), accent, Color.rgb(4,23,14));
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, dp(52));
+        blp.setMargins(0, dp(18), 0, dp(4));
+        confirm.setOnClickListener(v -> {
+            if (dlgRef[0] != null) dlgRef[0].dismiss();
+            penNumber++;
+            remainingClicks = fullClickDoses * dosesPerPen;
+            if (chooseReduce[0]) {
+                currentPlanClicks = finalReduced;
+                logEvent("NEW_PEN", "Pen #" + penNumber + " · reduce → " + currentPlanClicks + " clicks");
+            } else {
+                logEvent("NEW_PEN", "Pen #" + penNumber + " · keep " + currentPlanClicks + " clicks");
+            }
+            targetClicks = currentPlanClicks;
+            targetMg = targetClicks * mgPerClick;
+            planActive = true;
+            savePrefs(); buildHomeUi(); refreshUi();
+            // Optional: measure new pen
+            new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
                 .setMessage(tr("new_pen_measure_prompt"))
-                .setPositiveButton(tr("measure_now"), (d, w) -> {
-                    penNumber++;
-                    remainingClicks = fullClickDoses * dosesPerPen;
-                    savePrefs(); refreshUi();
-                    logEvent("NEW_PEN", "Pen #" + penNumber + " · measuring");
-                    startFullDoseMeasureFullscreen();
-                })
-                .setNeutralButton(tr("use_saved"), (d, w) -> {
-                    penNumber++;
-                    remainingClicks = fullClickDoses * dosesPerPen;
-                    savePrefs(); refreshUi();
-                    logEvent("NEW_PEN", "Pen #" + penNumber + " · " + (fullClickDoses * dosesPerPen) + " clicks");
-                    Toast.makeText(this, String.format(tr("new_pen_set_toast"), fullClickDoses * dosesPerPen), Toast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton(tr("cancel"), null)
+                .setPositiveButton(tr("measure_now"), (d2, w2) -> startFullDoseMeasureFullscreen())
+                .setNegativeButton(tr("skip_for_now"), null)
                 .show();
+        });
+        box.addView(confirm, blp);
+
+        AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+            .setView(box).create();
+        dlgRef[0] = dlg;
+        if (dlg.getWindow() != null) dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        dlg.show();
+        if (dlg.getWindow() != null) dlg.getWindow().setLayout(-1, -2);
+    }
+
+    private LinearLayout optionCard(String title, String subtitle, int borderColor) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(16), dp(14), dp(16), dp(14));
+        card.setClickable(true); card.setFocusable(true);
+        GradientDrawable bd = new GradientDrawable();
+        bd.setColor(card2); bd.setCornerRadius(dp(18));
+        bd.setStroke(dp(2), borderColor);
+        card.setBackground(bd);
+        card.addView(text(title, 16, ink, true));
+        card.addView(text(subtitle, 13, muted, false));
+        return card;
     }
 
     private void markPenEmpty() {
@@ -830,10 +909,15 @@ public class MainActivity extends Activity {
         for (int i = rows.length - 1; i >= 0; i--) {
             String row = rows[i].trim();
             if (row.isEmpty()) continue;
-            String[] parts = row.split("\\|");
-            if (parts.length >= 4 && "EVENT".equals(parts[2])) continue;
-            if (parts.length >= 4) {
-                return tr("last_dose_fmt") + "  " + parts[0] + " · " + parts[2] + " " + tr("clicks") + " · " + parts[3] + " mg";
+            String[] p = row.split("\\|");
+            if (p.length >= 4 && "EVENT".equals(p[2])) continue;
+            // New format: date|time|pen#|targetClicks|actualClicks|mg|restAfter|total
+            if (p.length >= 6) {
+                return tr("last_dose_fmt") + "  " + p[0] + " · " + p[4] + " " + tr("clicks") + " · ~" + p[5] + " mg";
+            }
+            // Legacy format: date|time|clicks|mg|...
+            if (p.length >= 4) {
+                return tr("last_dose_fmt") + "  " + p[0] + " · " + p[2] + " " + tr("clicks") + " · ~" + p[3] + " mg";
             }
         }
         return tr("no_dose_yet");
@@ -1025,6 +1109,10 @@ public class MainActivity extends Activity {
                 case "this_week": return "THIS WEEK";
                 case "start_counting": return "Start counting →";
                 case "pen_label": return "Pen";
+                case "new_pen_plan_question": return "How do you want to continue?";
+                case "plan_keep": return "Keep current dose";
+                case "plan_reduce": return "Reduce one step";
+                case "new_pen_start": return "Start new pen →";
                 case "pen_reached_stop": return "Pen reached stop";
                 case "pen_reached_stop_desc": return "Mark pen as empty if it stopped before expected";
                 case "pen_stop_msg": return "ClickPlan expected %d clicks remaining. If your pen has physically stopped, confirm to set remaining clicks to 0.";
@@ -1139,6 +1227,10 @@ public class MainActivity extends Activity {
                 case "this_week": return "DIESE WOCHE";
                 case "start_counting": return "Zählen starten →";
                 case "pen_label": return "Pen";
+                case "new_pen_plan_question": return "Wie möchtest du weitermachen?";
+                case "plan_keep": return "Dosis beibehalten";
+                case "plan_reduce": return "Einen Schritt reduzieren";
+                case "new_pen_start": return "Neuen Pen starten →";
                 case "pen_reached_stop": return "Pen am Anschlag";
                 case "pen_reached_stop_desc": return "Pen als leer markieren, wenn er vor dem erwarteten Ende stoppt";
                 case "pen_stop_msg": return "ClickPlan erwartete noch %d Klicks. Falls dein Pen physisch gestoppt hat, bestätige um den Rest auf 0 zu setzen.";
@@ -1152,8 +1244,8 @@ public class MainActivity extends Activity {
 
     private double readDouble(EditText e,double f){ try{return Double.parseDouble(e.getText().toString().replace(',','.'));}catch(Exception x){return f;} }
     private int readInt(EditText e,int f){ try{return (int)Math.round(Double.parseDouble(e.getText().toString().replace(',','.')));}catch(Exception x){return f;} }
-    private void loadPrefs(){ SharedPreferences p=getSharedPreferences(PREF,MODE_PRIVATE); drugName=p.getString("drugName",""); strengthMg=Double.longBitsToDouble(p.getLong("strength",Double.doubleToLongBits(2.4))); dosesPerPen=p.getInt("doses",4); fullClickDoses=p.getInt("fullClicks",74); remainingClicks=p.getInt("remaining",fullClickDoses*dosesPerPen); targetMg=Double.longBitsToDouble(p.getLong("target",Double.doubleToLongBits(1.2))); targetClicks=p.getInt("targetClicks",37); penNumber=p.getInt("penNumber",1); thresholdFactor=Double.longBitsToDouble(p.getLong("factor",Double.doubleToLongBits(0.38))); noiseAvgJump=Double.longBitsToDouble(p.getLong("noise",Double.doubleToLongBits(180.0))); calibratedClickPeak=Double.longBitsToDouble(p.getLong("clickPeak",Double.doubleToLongBits(2600.0))); cooldownMs=p.getInt("cooldown",80); language=p.getString("language","en"); penName=p.getString("penName",""); injectionHistory=p.getString("history",""); }
-    private void savePrefs(){ getSharedPreferences(PREF,MODE_PRIVATE).edit().putString("drugName",drugName).putLong("strength",Double.doubleToLongBits(strengthMg)).putInt("doses",dosesPerPen).putInt("fullClicks",fullClickDoses).putInt("remaining",remainingClicks).putLong("target",Double.doubleToLongBits(targetMg)).putInt("targetClicks",targetClicks).putInt("penNumber",penNumber).putLong("factor",Double.doubleToLongBits(thresholdFactor)).putLong("noise",Double.doubleToLongBits(noiseAvgJump)).putLong("clickPeak",Double.doubleToLongBits(calibratedClickPeak)).putInt("cooldown",cooldownMs).putString("language",language).putString("penName",penName).putString("history",injectionHistory).apply(); }
+    private void loadPrefs(){ SharedPreferences p=getSharedPreferences(PREF,MODE_PRIVATE); drugName=p.getString("drugName",""); strengthMg=Double.longBitsToDouble(p.getLong("strength",Double.doubleToLongBits(2.4))); dosesPerPen=p.getInt("doses",4); fullClickDoses=p.getInt("fullClicks",74); remainingClicks=p.getInt("remaining",fullClickDoses*dosesPerPen); targetMg=Double.longBitsToDouble(p.getLong("target",Double.doubleToLongBits(1.2))); targetClicks=p.getInt("targetClicks",37); penNumber=p.getInt("penNumber",1); currentPlanClicks=p.getInt("currentPlanClicks",targetClicks); targetPlanClicks=p.getInt("targetPlanClicks",targetClicks); planActive=p.getBoolean("planActive",false); thresholdFactor=Double.longBitsToDouble(p.getLong("factor",Double.doubleToLongBits(0.38))); noiseAvgJump=Double.longBitsToDouble(p.getLong("noise",Double.doubleToLongBits(180.0))); calibratedClickPeak=Double.longBitsToDouble(p.getLong("clickPeak",Double.doubleToLongBits(2600.0))); cooldownMs=p.getInt("cooldown",80); language=p.getString("language","en"); penName=p.getString("penName",""); injectionHistory=p.getString("history",""); }
+    private void savePrefs(){ getSharedPreferences(PREF,MODE_PRIVATE).edit().putString("drugName",drugName).putLong("strength",Double.doubleToLongBits(strengthMg)).putInt("doses",dosesPerPen).putInt("fullClicks",fullClickDoses).putInt("remaining",remainingClicks).putLong("target",Double.doubleToLongBits(targetMg)).putInt("targetClicks",targetClicks).putInt("penNumber",penNumber).putInt("currentPlanClicks",currentPlanClicks).putInt("targetPlanClicks",targetPlanClicks).putBoolean("planActive",planActive).putLong("factor",Double.doubleToLongBits(thresholdFactor)).putLong("noise",Double.doubleToLongBits(noiseAvgJump)).putLong("clickPeak",Double.doubleToLongBits(calibratedClickPeak)).putInt("cooldown",cooldownMs).putString("language",language).putString("penName",penName).putString("history",injectionHistory).apply(); }
     @Override protected void onDestroy(){ audioActive=false; super.onDestroy(); }
 
     public class SegmentedRingView extends View {

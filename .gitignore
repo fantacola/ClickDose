@@ -5,3 +5,7 @@
 /build/gradle.properties
 *.jks
 build/
+.idea/
+local.properties
+gradle.properties
+*.jks
