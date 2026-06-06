@@ -130,44 +130,105 @@ public class MainActivity extends Activity {
         EditText doses = input(String.valueOf(dosesPerPen), tr("doses_per_pen"));
         EditText full = input(String.valueOf(fullClickDoses), tr("clicks_per_dose"));
         TextView clicksHint = text(tr("pen_clicks_hint"), 11, muted, false);
-        clicksHint.setPadding(0, dp(2), 0, dp(6));
-        // Current weekly dose — defaults to full dose, editable for users already reducing
-        EditText weekly = input(String.valueOf(planActive ? currentPlanClicks : fullClickDoses), tr("weekly_clicks_hint"));
-        TextView weeklyHint = text(tr("weekly_clicks_subhint"), 11, muted, false);
-        weeklyHint.setPadding(0, dp(2), 0, dp(6));
+        clicksHint.setPadding(0, dp(2), 0, dp(8));
         box.addView(labelled(tr("pen_name_label"), name));
         box.addView(labelled(tr("full_dose_label"), strength));
         box.addView(labelled(tr("doses_per_pen"), doses));
         box.addView(labelled(tr("clicks_per_dose"), full));
         box.addView(clicksHint);
-        box.addView(labelled(tr("weekly_clicks_label"), weekly));
-        box.addView(weeklyHint);
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box)
             .setCancelable(false)
-            .setPositiveButton(tr("done"), (d, w) -> {
+            .setPositiveButton(tr("next"), (d, w) -> {
                 penName = name.getText().toString().trim();
                 strengthMg = readDouble(strength, strengthMg);
                 dosesPerPen = Math.max(1, readInt(doses, dosesPerPen));
                 fullClickDoses = Math.max(1, readInt(full, fullClickDoses));
                 remainingClicks = fullClickDoses * dosesPerPen;
-                targetMg = strengthMg; // user enters mg per injection, not total pen content
-                recomputeTarget(); // sets targetClicks = fullClickDoses
-                // Override with user's actual current weekly dose (may be reduced)
-                int weeklyClicks = Math.max(1, Math.min(fullClickDoses, readInt(weekly, fullClickDoses)));
-                targetClicks = weeklyClicks;
-                targetMg = targetClicks * (strengthMg / Math.max(1, fullClickDoses));
-                currentPlanClicks = targetClicks;
-                // targetPlanClicks is the absolute floor — don't reset it on recalibration
-                planActive = true;
-                savePrefs(); buildHomeUi(); refreshUi();
-                new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
-                    .setTitle(tr("calibrate_prompt_title"))
-                    .setMessage(tr("calibrate_prompt_msg"))
-                    .setPositiveButton(tr("calibrate"), (d2, w2) -> startCalibrationFullscreen())
-                    .setNegativeButton(tr("skip_for_now"), null)
-                    .show();
+                targetMg = strengthMg;
+                recomputeTarget();
+                savePrefs();
+                // Step 2: ask about starting dose
+                showInitialPlanDialog();
             })
             .show();
+    }
+
+    private void showInitialPlanDialog() {
+        LinearLayout box = dialogBox();
+        box.addView(text(tr("setup_plan_title"), 24, ink, true));
+        TextView sub = text(tr("setup_plan_subtitle"), 14, muted, false);
+        sub.setPadding(0, dp(4), 0, dp(14));
+        box.addView(sub);
+
+        double mgPerClick = strengthMg / Math.max(1, fullClickDoses);
+
+        LinearLayout freshCard = optionCard(
+            "✓  " + tr("setup_fresh"),
+            String.format(Locale.US, "%d " + tr("clicks") + "  ·  ~%.2f mg", fullClickDoses, strengthMg),
+            accent);
+        LinearLayout reduceCard = optionCard(
+            "↓  " + tr("setup_already_reducing"),
+            tr("setup_already_reducing_sub"),
+            blue);
+        reduceCard.setPadding(dp(16), dp(14), dp(16), dp(14));
+        reduceCard.setClickable(true); reduceCard.setFocusable(true);
+
+        EditText currentInput = input(String.valueOf(fullClickDoses), tr("weekly_clicks_hint"));
+        currentInput.setVisibility(View.GONE);
+        LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(-1, -2);
+        inputLp.setMargins(0, dp(4), 0, 0);
+        currentInput.setLayoutParams(inputLp);
+
+        final boolean[] chooseReduce = {false};
+        freshCard.setOnClickListener(v -> {
+            chooseReduce[0] = false;
+            freshCard.setBackground(round(accent, 18));
+            reduceCard.setBackground(round(card2, 18));
+            currentInput.setVisibility(View.GONE);
+        });
+        reduceCard.setOnClickListener(v -> {
+            chooseReduce[0] = true;
+            reduceCard.setBackground(round(blue, 18));
+            freshCard.setBackground(round(card2, 18));
+            currentInput.setVisibility(View.VISIBLE);
+        });
+        freshCard.setBackground(round(accent, 18)); // default: fresh start selected
+
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
+        cardLp.setMargins(0, 0, 0, dp(10));
+        freshCard.setLayoutParams(cardLp);
+
+        box.addView(freshCard);
+        box.addView(reduceCard);
+        box.addView(currentInput);
+
+        Button confirm = pillButton(tr("setup_plan_confirm"), accent, Color.rgb(4, 23, 14));
+        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(-1, dp(52));
+        btnLp.setMargins(0, dp(18), 0, dp(8));
+        confirm.setLayoutParams(btnLp);
+        confirm.setOnClickListener(v -> {
+            int clicks = chooseReduce[0]
+                ? Math.max(1, Math.min(fullClickDoses, readInt(currentInput, fullClickDoses)))
+                : fullClickDoses;
+            targetClicks = clicks;
+            targetMg = clicks * mgPerClick;
+            currentPlanClicks = clicks;
+            planActive = true;
+            savePrefs(); buildHomeUi(); refreshUi();
+            new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+                .setTitle(tr("calibrate_prompt_title"))
+                .setMessage(tr("calibrate_prompt_msg"))
+                .setPositiveButton(tr("calibrate"), (d2, w2) -> startCalibrationFullscreen())
+                .setNegativeButton(tr("skip_for_now"), null)
+                .show();
+        });
+        box.addView(confirm);
+
+        AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+            .setView(box).setCancelable(false).create();
+        dlg.show();
+        android.view.Window win = dlg.getWindow();
+        if (win != null) { win.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)); win.setLayout(-1, -2); }
     }
 
     private void buildHomeUi() {
@@ -1047,6 +1108,13 @@ public class MainActivity extends Activity {
                 case "weekly_clicks_label": return "This week's dose";
                 case "weekly_clicks_hint": return "clicks/week";
                 case "weekly_clicks_subhint": return "Already reducing? Enter your current weekly clicks. Otherwise leave as-is.";
+                case "next": return "Next →";
+                case "setup_plan_title": return "Your starting dose";
+                case "setup_plan_subtitle": return "Are you starting fresh, or already on a reduced schedule?";
+                case "setup_fresh": return "Fresh start";
+                case "setup_already_reducing": return "Already reducing";
+                case "setup_already_reducing_sub": return "Enter your current weekly clicks below";
+                case "setup_plan_confirm": return "Set dose →";
                 case "doses_per_pen": return "Doses per pen";
                 case "clicks_per_dose": return "Clicks per full dose";
                 case "remaining_hint": return "Remaining clicks";
@@ -1168,6 +1236,13 @@ public class MainActivity extends Activity {
                 case "weekly_clicks_label": return "Dosis diese Woche";
                 case "weekly_clicks_hint": return "Klicks/Woche";
                 case "weekly_clicks_subhint": return "Bereits am Reduzieren? Aktuelle Wochenklicks eingeben. Sonst so lassen.";
+                case "next": return "Weiter →";
+                case "setup_plan_title": return "Deine Startdosis";
+                case "setup_plan_subtitle": return "Startest du frisch, oder bist du bereits an einer reduzierten Dosis?";
+                case "setup_fresh": return "Volle Dosis";
+                case "setup_already_reducing": return "Bereits am Reduzieren";
+                case "setup_already_reducing_sub": return "Aktuelle Wochenklicks unten eingeben";
+                case "setup_plan_confirm": return "Dosis festlegen →";
                 case "doses_per_pen": return "Dosen pro Pen";
                 case "clicks_per_dose": return "Klicks pro Volldosis";
                 case "remaining_hint": return "Restklicks im Pen";
