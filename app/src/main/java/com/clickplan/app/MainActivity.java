@@ -127,19 +127,19 @@ public class MainActivity extends Activity {
         box.addView(clicksHint);
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box)
             .setCancelable(false)
-            .setPositiveButton(tr("next_choose_plan"), (d, w) -> {
+            .setPositiveButton(tr("done"), (d, w) -> {
                 penName = name.getText().toString().trim();
                 strengthMg = readDouble(strength, strengthMg);
                 dosesPerPen = Math.max(1, readInt(doses, dosesPerPen));
                 fullClickDoses = Math.max(1, readInt(full, fullClickDoses));
                 remainingClicks = fullClickDoses * dosesPerPen;
-                targetMg = strengthMg;
+                targetMg = strengthMg / dosesPerPen;
                 recomputeTarget(); savePrefs(); buildHomeUi(); refreshUi();
                 new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
                     .setTitle(tr("calibrate_prompt_title"))
                     .setMessage(tr("calibrate_prompt_msg"))
                     .setPositiveButton(tr("calibrate"), (d2, w2) -> startCalibrationFullscreen())
-                    .setNegativeButton(tr("skip_for_now"), (d2, w2) -> showPlannerDialog())
+                    .setNegativeButton(tr("skip_for_now"), null)
                     .show();
             })
             .show();
@@ -153,15 +153,16 @@ public class MainActivity extends Activity {
         root.setClipToPadding(false);
         setContentView(root);
 
+        // ── Header ──────────────────────────────────────────────────────────
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout titleBox = new LinearLayout(this);
         titleBox.setOrientation(LinearLayout.VERTICAL);
-        TextView title = text("ClickPlan", 29, ink, true);
+        TextView title = text("ClickPlan", 26, ink, true);
         title.setIncludeFontPadding(false);
         String penLabel = (penName.isEmpty() ? tr("my_pen") : penName) + "  ✏";
-        TextView sub = text(penLabel, 14, accent, false);
+        TextView sub = text(penLabel, 13, muted, false);
         sub.setClickable(true);
         sub.setOnClickListener(v -> showProfileDialog());
         titleBox.addView(title);
@@ -169,48 +170,52 @@ public class MainActivity extends Activity {
         top.addView(titleBox, new LinearLayout.LayoutParams(0, -2, 1));
         root.addView(top);
 
+        // ── Stage card ───────────────────────────────────────────────────────
         LinearLayout stage = roundedBox(card, 30, dp(18));
         LinearLayout.LayoutParams stageLp = new LinearLayout.LayoutParams(-1, 0, 1);
-        stageLp.setMargins(0, dp(18), 0, dp(12));
+        stageLp.setMargins(0, dp(14), 0, dp(12));
         root.addView(stage, stageLp);
 
-        TextView label = text(tr("clicks_remaining_label"), 11, muted, true);
-        label.setLetterSpacing(0.12f); label.setGravity(Gravity.CENTER);
-        stage.addView(label, new LinearLayout.LayoutParams(-1, -2));
-        restBigView = text("296", 49, ink, true);
-        restBigView.setGravity(Gravity.CENTER); restBigView.setIncludeFontPadding(false);
-        stage.addView(restBigView, new LinearLayout.LayoutParams(-1, -2));
-        restSubView = text("", 14, muted, false);
-        restSubView.setGravity(Gravity.CENTER);
-        stage.addView(restSubView);
+        // "THIS WEEK" label
+        TextView weekLabel = text(tr("this_week"), 11, muted, true);
+        weekLabel.setLetterSpacing(0.14f);
+        weekLabel.setGravity(Gravity.CENTER);
+        stage.addView(weekLabel, new LinearLayout.LayoutParams(-1, -2));
 
+        // Ring with dominant number in center
         FrameLayout frame = new FrameLayout(this);
         penRing = new SegmentedRingView(this);
-        penRing.segments = 99; penRing.strokeDp = 11; penRing.trackColor = track; penRing.progressColor = accent;
-        doseRing = new SegmentedRingView(this);
-        doseRing.segments = 74; doseRing.strokeDp = 6; doseRing.trackColor = Color.rgb(35,35,40); doseRing.progressColor = blue;
+        penRing.strokeDp = 13;
+        penRing.trackColor = track;
+        penRing.progressColor = accent;
         frame.addView(penRing, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
-        FrameLayout inner = new FrameLayout(this);
-        inner.setPadding(dp(36), dp(36), dp(36), dp(36));
-        inner.addView(doseRing, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
-        frame.addView(inner, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
 
+        // Center content: big clicks number + label + mg
         LinearLayout center = new LinearLayout(this);
-        center.setOrientation(LinearLayout.VERTICAL); center.setGravity(Gravity.CENTER);
-        centerMainView = text("", 34, ink, true);
-        centerMainView.setGravity(Gravity.CENTER); centerMainView.setIncludeFontPadding(false);
-        centerSubView = text("", 15, accent, true); centerSubView.setGravity(Gravity.CENTER);
-        centerTinyView = text(tr("live_count"), 12, muted, false); centerTinyView.setGravity(Gravity.CENTER);
-        center.addView(centerMainView); center.addView(centerSubView); center.addView(centerTinyView);
+        center.setOrientation(LinearLayout.VERTICAL);
+        center.setGravity(Gravity.CENTER);
+        centerMainView = text("37", 72, ink, true);
+        centerMainView.setGravity(Gravity.CENTER);
+        centerMainView.setIncludeFontPadding(false);
+        centerSubView = text(tr("clicks"), 18, accent, true);
+        centerSubView.setGravity(Gravity.CENTER);
+        centerTinyView = text("", 13, muted, false);
+        centerTinyView.setGravity(Gravity.CENTER);
+        center.addView(centerMainView);
+        center.addView(centerSubView);
+        center.addView(centerTinyView);
         frame.addView(center, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         stage.addView(frame, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        LinearLayout stats = new LinearLayout(this); stats.setOrientation(LinearLayout.HORIZONTAL);
+        // ── Secondary info row ───────────────────────────────────────────────
+        LinearLayout stats = new LinearLayout(this);
+        stats.setOrientation(LinearLayout.HORIZONTAL);
         leftStatView = statCard("");
         rightStatView = statCard("");
-        stats.addView(leftStatView, new LinearLayout.LayoutParams(0, dp(72), 1));
-        Space sp = new Space(this); stats.addView(sp, new LinearLayout.LayoutParams(dp(10), 1));
-        stats.addView(rightStatView, new LinearLayout.LayoutParams(0, dp(72), 1));
+        stats.addView(leftStatView, new LinearLayout.LayoutParams(0, dp(66), 1));
+        Space sp = new Space(this);
+        stats.addView(sp, new LinearLayout.LayoutParams(dp(10), 1));
+        stats.addView(rightStatView, new LinearLayout.LayoutParams(0, dp(66), 1));
         stage.addView(stats, new LinearLayout.LayoutParams(-1, -2));
 
         lastDoseView = text("", 12, muted, false);
@@ -218,23 +223,27 @@ public class MainActivity extends Activity {
         lastDoseView.setPadding(0, dp(6), 0, dp(2));
         stage.addView(lastDoseView, new LinearLayout.LayoutParams(-1, -2));
 
-        primaryButton = pillButton("", accent, Color.rgb(4,23,14));
+        // ── Primary action button ────────────────────────────────────────────
+        primaryButton = pillButton("", accent, Color.rgb(4, 23, 14));
         primaryButton.setTextSize(17);
         primaryButton.setOnClickListener(v -> startDoseCountingFullscreen());
         root.addView(primaryButton, new LinearLayout.LayoutParams(-1, dp(58)));
 
-        LinearLayout bottom = roundedBox(Color.rgb(18,18,21), 28, dp(5));
-        bottom.setOrientation(LinearLayout.HORIZONTAL); bottom.setGravity(Gravity.CENTER);
-        String[] items = {tr("calibrate"), tr("plan"), tr("history"), tr("more")};
-        for (String n : items) {
-            Button b = ghostButton(n); b.setTextSize(12);
-            if (n.equals(tr("calibrate"))) b.setOnClickListener(v -> startCalibrationFullscreen());
-            else if (n.equals(tr("plan"))) b.setOnClickListener(v -> showPlannerDialog());
+        // ── Bottom nav (3 items — no Plan) ───────────────────────────────────
+        LinearLayout bottom = roundedBox(Color.rgb(18, 18, 21), 28, dp(5));
+        bottom.setOrientation(LinearLayout.HORIZONTAL);
+        bottom.setGravity(Gravity.CENTER);
+        String[] navItems = {tr("calibrate"), tr("history"), tr("more")};
+        for (String n : navItems) {
+            Button b = ghostButton(n);
+            b.setTextSize(12);
+            if (n.equals(tr("calibrate")))   b.setOnClickListener(v -> startCalibrationFullscreen());
             else if (n.equals(tr("history"))) b.setOnClickListener(v -> showHistoryDialog());
-            else b.setOnClickListener(v -> showMoreDialog());
+            else                               b.setOnClickListener(v -> showMoreDialog());
             bottom.addView(b, new LinearLayout.LayoutParams(0, dp(50), 1));
         }
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, dp(60)); blp.setMargins(0, dp(12), 0, 0);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, dp(60));
+        blp.setMargins(0, dp(12), 0, 0);
         root.addView(bottom, blp);
     }
 
@@ -611,37 +620,42 @@ public class MainActivity extends Activity {
         double mgPerClick = strengthMg / Math.max(1, fullClickDoses);
         double remMg = remainingClicks * mgPerClick;
 
-        if (restBigView != null) {
-            restBigView.setText(String.valueOf(remainingClicks));
-            restSubView.setText(String.format(Locale.US, tr("clicks_remaining_fmt"), remMg));
-            centerMainView.setText(String.format(Locale.US, "%d " + tr("clicks"), targetClicks));
-            centerSubView.setText(String.format(Locale.US, tr("today_mg_fmt"), targetMg));
-            centerTinyView.setText(tr("tap_to_count"));
-            penRing.progress = Math.max(0f, Math.min(1f, remainingClicks/(float)total));
-            penRing.segments = Math.min(160, Math.max(24, total/3));
-            penRing.invalidate();
-            doseRing.progress = Math.max(0f, Math.min(1f, targetClicks/(float)Math.max(1, fullClickDoses)));
-            doseRing.segments = Math.max(8, Math.min(96, fullClickDoses));
-            doseRing.invalidate();
-            leftStatView.setText(String.format(Locale.US, tr("rest_stat_fmt"), remainingClicks, total));
-            int dosesLeft = targetClicks > 0 ? remainingClicks / targetClicks : 0;
-            int rem = targetClicks > 0 ? remainingClicks % targetClicks : 0;
+        if (centerMainView != null) {
             boolean penEmpty = remainingClicks <= 0;
             boolean penNearlyEmpty = !penEmpty && remainingClicks < targetClicks;
-            rightStatView.setText(tr("doses_label") + "\n" + (penEmpty ? "0" : rem == 0 ? dosesLeft : "~" + dosesLeft));
+
+            // Dominant: target clicks
+            centerMainView.setText(String.valueOf(targetClicks));
+            centerSubView.setText(tr("clicks"));
+            centerTinyView.setText(String.format(Locale.US, "~%.2f mg", targetMg));
+
+            // Ring: pen remaining
+            penRing.progress = Math.max(0f, Math.min(1f, remainingClicks / (float) total));
+            penRing.segments = Math.min(120, Math.max(20, total / 3));
+            penRing.progressColor = penEmpty ? warn : accent;
+            penRing.invalidate();
+
+            // Stat cards: remaining + doses left
+            leftStatView.setText(String.format(Locale.US, tr("rest_stat_fmt"), remainingClicks, total));
+            int dosesLeft = targetClicks > 0 ? remainingClicks / targetClicks : 0;
+            int remD = targetClicks > 0 ? remainingClicks % targetClicks : 0;
+            rightStatView.setText(tr("doses_label") + "\n" + (penEmpty ? "0" : remD == 0 ? dosesLeft : "~" + dosesLeft));
             rightStatView.setTextColor(penEmpty || penNearlyEmpty ? warn : ink);
+
+            if (lastDoseView != null) lastDoseView.setText(lastDoseText());
+
+            // Primary button
             if (penEmpty) {
                 primaryButton.setText(tr("new_pen_cta"));
                 primaryButton.setBackground(round(warn, 30));
                 primaryButton.setTextColor(Color.rgb(30, 15, 0));
                 primaryButton.setOnClickListener(v -> confirmNewPen());
             } else {
-                primaryButton.setText(String.format(Locale.US, tr("set_clicks_fmt"), targetClicks));
+                primaryButton.setText(tr("start_counting"));
                 primaryButton.setBackground(round(accent, 30));
                 primaryButton.setTextColor(Color.rgb(4, 23, 14));
                 primaryButton.setOnClickListener(v -> startDoseCountingFullscreen());
             }
-            if (lastDoseView != null) lastDoseView.setText(lastDoseText());
         }
 
         if (fullRing != null) {
@@ -902,7 +916,9 @@ public class MainActivity extends Activity {
                 case "calib_noise_hint": return "Hold pen still — measuring background noise …";
                 case "calib_click_hint": return "Now slowly turn your pen and count 5–10 clicks";
                 case "clicks_remaining_label": return "CLICKS REMAINING";
-                case "onboarding_rings": return "On the home screen: the outer green ring shows pen fill level, the inner blue ring shows your current dose relative to a full dose.";
+                case "onboarding_rings": return "The green ring shows how much of your pen is left. The number in the centre is your dose for this week.";
+                case "this_week": return "THIS WEEK";
+                case "start_counting": return "Start counting →";
             }
         } else {
             switch (key) {
@@ -1007,7 +1023,9 @@ public class MainActivity extends Activity {
                 case "calib_noise_hint": return "Pen ruhig halten — Hintergrundgeräusche werden gemessen …";
                 case "calib_click_hint": return "Jetzt langsam drehen und 5–10 Klicks zählen";
                 case "clicks_remaining_label": return "KLICKS VERBLEIBEND";
-                case "onboarding_rings": return "Auf dem Homescreen: der äussere grüne Ring zeigt den Füllstand des Pens, der innere blaue Ring zeigt deine aktuelle Dosis im Verhältnis zur Volldosis.";
+                case "onboarding_rings": return "Der grüne Ring zeigt wie viel noch im Pen ist. Die Zahl in der Mitte ist deine Dosis für diese Woche.";
+                case "this_week": return "DIESE WOCHE";
+                case "start_counting": return "Zählen starten →";
             }
         }
         return key;
