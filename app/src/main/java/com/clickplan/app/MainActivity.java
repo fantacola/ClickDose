@@ -492,7 +492,7 @@ public class MainActivity extends Activity {
 
                 // ── Event card (calibration, new pen, plan change) ──────────
                 if (p.length >= 4 && "EVENT".equals(p[2])) {
-                    String icon = "NEW_PEN".equals(p[3]) ? "💉" : "CALIB".equals(p[3]) ? "🎯" : "MEASURE".equals(p[3]) ? "📏" : "↗";
+                    String icon = "NEW_PEN".equals(p[3]) ? "💉" : "CALIB".equals(p[3]) ? "🎯" : "MEASURE".equals(p[3]) ? "📏" : "PEN_END".equals(p[3]) ? "🛑" : "↗";
                     LinearLayout card = new LinearLayout(this);
                     card.setOrientation(LinearLayout.HORIZONTAL);
                     card.setGravity(Gravity.CENTER_VERTICAL);
@@ -624,6 +624,32 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    private void markPenEmpty() {
+        int expected = remainingClicks;
+        if (expected <= 0) {
+            // Already empty — go straight to new pen
+            confirmNewPen(); return;
+        }
+        String msg = String.format(tr("pen_stop_msg"), expected);
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+            .setTitle(tr("pen_reached_stop"))
+            .setMessage(msg)
+            .setPositiveButton(tr("pen_confirm_empty"), (d, w) -> {
+                int discrepancy = expected;
+                logEvent("PEN_END", "Pen #" + penNumber + " · expected " + expected + " remaining · adjusted to 0");
+                remainingClicks = 0;
+                savePrefs(); refreshUi();
+                // Show calm confirmation then offer new pen
+                new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+                    .setMessage(String.format(tr("pen_completed_msg"), discrepancy))
+                    .setPositiveButton(tr("new_pen"), (d2, w2) -> confirmNewPen())
+                    .setNegativeButton(tr("close"), null)
+                    .show();
+            })
+            .setNegativeButton(tr("cancel"), null)
+            .show();
+    }
+
     private void showMoreDialog() {
         LinearLayout box = dialogBox();
         box.addView(text(tr("more_title"), 24, ink, true));
@@ -634,13 +660,15 @@ public class MainActivity extends Activity {
         AlertDialog[] dlgRef = {null};
 
         String[][] items = {
-            {"📏", tr("measure_full"), tr("more_measure_desc")},
-            {"💉", tr("new_pen"),      tr("more_newpen_desc")},
-            {"🌐", "Language / Sprache", tr("more_lang_desc")},
+            {"🛑", tr("pen_reached_stop"),  tr("pen_reached_stop_desc")},
+            {"💉", tr("new_pen"),            tr("more_newpen_desc")},
+            {"📏", tr("measure_full"),       tr("more_measure_desc")},
+            {"🌐", "Language / Sprache",     tr("more_lang_desc")},
         };
         Runnable[] actions = {
-            () -> { dlgRef[0].dismiss(); startFullDoseMeasureFullscreen(); },
+            () -> { dlgRef[0].dismiss(); markPenEmpty(); },
             () -> { dlgRef[0].dismiss(); confirmNewPen(); },
+            () -> { dlgRef[0].dismiss(); startFullDoseMeasureFullscreen(); },
             () -> { dlgRef[0].dismiss(); showLanguageDialog(); },
         };
 
@@ -997,6 +1025,12 @@ public class MainActivity extends Activity {
                 case "this_week": return "THIS WEEK";
                 case "start_counting": return "Start counting →";
                 case "pen_label": return "Pen";
+                case "pen_reached_stop": return "Pen reached stop";
+                case "pen_reached_stop_desc": return "Mark pen as empty if it stopped before expected";
+                case "pen_stop_msg": return "ClickPlan expected %d clicks remaining. If your pen has physically stopped, confirm to set remaining clicks to 0.";
+                case "pen_confirm_empty": return "Pen is empty";
+                case "pen_completed_msg": return "Pen completed. ClickPlan adjusted %d remaining clicks to 0. This is normal — pens vary slightly.";
+                case "event_pen_end": return "Pen completed";
             }
         } else {
             switch (key) {
@@ -1104,6 +1138,13 @@ public class MainActivity extends Activity {
                 case "onboarding_rings": return "Der grüne Ring zeigt wie viel noch im Pen ist. Die Zahl in der Mitte ist deine Dosis für diese Woche.";
                 case "this_week": return "DIESE WOCHE";
                 case "start_counting": return "Zählen starten →";
+                case "pen_label": return "Pen";
+                case "pen_reached_stop": return "Pen am Anschlag";
+                case "pen_reached_stop_desc": return "Pen als leer markieren, wenn er vor dem erwarteten Ende stoppt";
+                case "pen_stop_msg": return "ClickPlan erwartete noch %d Klicks. Falls dein Pen physisch gestoppt hat, bestätige um den Rest auf 0 zu setzen.";
+                case "pen_confirm_empty": return "Pen ist leer";
+                case "pen_completed_msg": return "Pen abgeschlossen. ClickPlan hat %d verbleibende Klicks auf 0 angepasst. Das ist normal — Pens variieren leicht.";
+                case "event_pen_end": return "Pen abgeschlossen";
             }
         }
         return key;
