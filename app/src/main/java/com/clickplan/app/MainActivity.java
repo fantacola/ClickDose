@@ -132,7 +132,7 @@ public class MainActivity extends Activity {
         TextView clicksHint = text(tr("pen_clicks_hint"), 11, muted, false);
         clicksHint.setPadding(0, dp(2), 0, dp(6));
         // Current weekly dose — defaults to full dose, editable for users already reducing
-        EditText weekly = input(String.valueOf(currentPlanClicks > 0 ? currentPlanClicks : fullClickDoses), tr("weekly_clicks_hint"));
+        EditText weekly = input(String.valueOf(planActive ? currentPlanClicks : fullClickDoses), tr("weekly_clicks_hint"));
         TextView weeklyHint = text(tr("weekly_clicks_subhint"), 11, muted, false);
         weeklyHint.setPadding(0, dp(2), 0, dp(6));
         box.addView(labelled(tr("pen_name_label"), name));
