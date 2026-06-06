@@ -53,7 +53,7 @@ public class MainActivity extends Activity {
     // ── Plan model ───────────────────────────────────────────────────────────
     // Dose changes only happen when starting a new pen.
     private int currentPlanClicks = 37;    // clicks per week for current pen
-    private int targetPlanClicks = 37;     // long-term target (floor for reductions)
+    private int targetPlanClicks = 1;      // absolute floor — never reduce below this
     private boolean planActive = false;    // true once user has set a plan
 
     private boolean targetReachedBuzzed = false;
@@ -147,7 +147,7 @@ public class MainActivity extends Activity {
                 targetMg = strengthMg / dosesPerPen;
                 recomputeTarget();
                 currentPlanClicks = targetClicks;
-                targetPlanClicks = targetClicks;
+                // targetPlanClicks is the absolute floor — don't reset it on recalibration
                 planActive = true;
                 savePrefs(); buildHomeUi(); refreshUi();
                 new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
@@ -621,17 +621,17 @@ public class MainActivity extends Activity {
 
         // Current plan info
         double mgPerClick = strengthMg / Math.max(1, fullClickDoses);
-        int reducedClicks = Math.max(1, Math.max(targetPlanClicks, (int) Math.round(currentPlanClicks * 0.85)));
-        // Optimise for no-remainder against pen total
+        // Reduce by 15%, then optimise for zero remainder within ±5
+        int reducedClicks = Math.max(targetPlanClicks, (int) Math.round(currentPlanClicks * 0.85));
         int total = fullClickDoses * dosesPerPen;
         if (reducedClicks > 0 && total % reducedClicks != 0) {
-            // find nearest divisor with no remainder
             for (int delta = 1; delta <= 5; delta++) {
-                if (total % (reducedClicks - delta) == 0) { reducedClicks = reducedClicks - delta; break; }
-                if (total % (reducedClicks + delta) == 0) { reducedClicks = reducedClicks + delta; break; }
+                int lo = reducedClicks - delta, hi = reducedClicks + delta;
+                if (lo >= targetPlanClicks && lo > 0 && total % lo == 0) { reducedClicks = lo; break; }
+                if (hi < currentPlanClicks && total % hi == 0) { reducedClicks = hi; break; }
             }
         }
-        final int finalReduced = Math.max(1, Math.max(targetPlanClicks, reducedClicks));
+        final int finalReduced = Math.max(targetPlanClicks, Math.max(1, reducedClicks));
 
         // Option cards
         LinearLayout keepCard = optionCard(
@@ -1244,7 +1244,7 @@ public class MainActivity extends Activity {
 
     private double readDouble(EditText e,double f){ try{return Double.parseDouble(e.getText().toString().replace(',','.'));}catch(Exception x){return f;} }
     private int readInt(EditText e,int f){ try{return (int)Math.round(Double.parseDouble(e.getText().toString().replace(',','.')));}catch(Exception x){return f;} }
-    private void loadPrefs(){ SharedPreferences p=getSharedPreferences(PREF,MODE_PRIVATE); drugName=p.getString("drugName",""); strengthMg=Double.longBitsToDouble(p.getLong("strength",Double.doubleToLongBits(2.4))); dosesPerPen=p.getInt("doses",4); fullClickDoses=p.getInt("fullClicks",74); remainingClicks=p.getInt("remaining",fullClickDoses*dosesPerPen); targetMg=Double.longBitsToDouble(p.getLong("target",Double.doubleToLongBits(1.2))); targetClicks=p.getInt("targetClicks",37); penNumber=p.getInt("penNumber",1); currentPlanClicks=p.getInt("currentPlanClicks",targetClicks); targetPlanClicks=p.getInt("targetPlanClicks",targetClicks); planActive=p.getBoolean("planActive",false); thresholdFactor=Double.longBitsToDouble(p.getLong("factor",Double.doubleToLongBits(0.38))); noiseAvgJump=Double.longBitsToDouble(p.getLong("noise",Double.doubleToLongBits(180.0))); calibratedClickPeak=Double.longBitsToDouble(p.getLong("clickPeak",Double.doubleToLongBits(2600.0))); cooldownMs=p.getInt("cooldown",80); language=p.getString("language","en"); penName=p.getString("penName",""); injectionHistory=p.getString("history",""); }
+    private void loadPrefs(){ SharedPreferences p=getSharedPreferences(PREF,MODE_PRIVATE); drugName=p.getString("drugName",""); strengthMg=Double.longBitsToDouble(p.getLong("strength",Double.doubleToLongBits(2.4))); dosesPerPen=p.getInt("doses",4); fullClickDoses=p.getInt("fullClicks",74); remainingClicks=p.getInt("remaining",fullClickDoses*dosesPerPen); targetMg=Double.longBitsToDouble(p.getLong("target",Double.doubleToLongBits(1.2))); targetClicks=p.getInt("targetClicks",37); penNumber=p.getInt("penNumber",1); currentPlanClicks=p.getInt("currentPlanClicks",targetClicks); targetPlanClicks=p.getInt("targetPlanClicks",1); planActive=p.getBoolean("planActive",false); thresholdFactor=Double.longBitsToDouble(p.getLong("factor",Double.doubleToLongBits(0.38))); noiseAvgJump=Double.longBitsToDouble(p.getLong("noise",Double.doubleToLongBits(180.0))); calibratedClickPeak=Double.longBitsToDouble(p.getLong("clickPeak",Double.doubleToLongBits(2600.0))); cooldownMs=p.getInt("cooldown",80); language=p.getString("language","en"); penName=p.getString("penName",""); injectionHistory=p.getString("history",""); }
     private void savePrefs(){ getSharedPreferences(PREF,MODE_PRIVATE).edit().putString("drugName",drugName).putLong("strength",Double.doubleToLongBits(strengthMg)).putInt("doses",dosesPerPen).putInt("fullClicks",fullClickDoses).putInt("remaining",remainingClicks).putLong("target",Double.doubleToLongBits(targetMg)).putInt("targetClicks",targetClicks).putInt("penNumber",penNumber).putInt("currentPlanClicks",currentPlanClicks).putInt("targetPlanClicks",targetPlanClicks).putBoolean("planActive",planActive).putLong("factor",Double.doubleToLongBits(thresholdFactor)).putLong("noise",Double.doubleToLongBits(noiseAvgJump)).putLong("clickPeak",Double.doubleToLongBits(calibratedClickPeak)).putInt("cooldown",cooldownMs).putString("language",language).putString("penName",penName).putString("history",injectionHistory).apply(); }
     @Override protected void onDestroy(){ audioActive=false; super.onDestroy(); }
 
