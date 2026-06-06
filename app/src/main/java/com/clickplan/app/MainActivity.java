@@ -39,12 +39,16 @@ public class MainActivity extends Activity {
     private final ArrayList<Double> clickCalibrationPeaks = new ArrayList<>();
     private final ArrayList<Long> clickCalibrationTimes = new ArrayList<>();
 
-    private double strengthMg = 2.4;
-    private int dosesPerPen = 4;
-    private int fullClickDoses = 74;
-    private int remainingClicks = 296;
-    private double targetMg = 1.2;
-    private int targetClicks = 37;
+    // ── Data model ───────────────────────────────────────────────────────────
+    // Clicks are authoritative. mg values are always derived.
+    private String drugName = "";          // e.g. "Wegovy", "Ozempic"
+    private double strengthMg = 2.4;       // full dose mg per pen
+    private int dosesPerPen = 4;           // doses per pen
+    private int fullClickDoses = 74;       // clicks per full dose
+    private int remainingClicks = 296;     // remaining clicks in current pen
+    private double targetMg = 1.2;        // current week target (derived)
+    private int targetClicks = 37;         // current week clicks (authoritative)
+    private int penNumber = 1;             // pen counter — increments at new pen
     private boolean targetReachedBuzzed = false;
     private String language = "en";
     private String penName = "";
@@ -452,75 +456,135 @@ public class MainActivity extends Activity {
             if (selectedRow[0] != null) selectedRow[0] = null;
         });
 
+        if (dlg.getWindow() != null) dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
         dlg.show();
+        if (dlg.getWindow() != null) dlg.getWindow().setLayout(-1, -2);
     }
 
 
     private void showHistoryDialog() {
         LinearLayout box = dialogBox();
         box.addView(text(tr("history_title"), 24, ink, true));
-        box.addView(text(tr("history_hint"), 13, muted, false));
+        TextView hint = text(tr("history_hint"), 12, muted, false);
+        hint.setPadding(0, 0, 0, dp(4));
+        box.addView(hint);
 
         ScrollView scroll = new ScrollView(this);
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(0, dp(4), 0, dp(4));
+        list.setPadding(0, dp(4), 0, dp(8));
 
         if (injectionHistory == null || injectionHistory.trim().isEmpty()) {
             TextView empty = text(tr("history_empty"), 15, muted, false);
-            empty.setPadding(dp(12), dp(18), dp(12), dp(18));
+            empty.setPadding(dp(12), dp(24), dp(12), dp(24));
+            empty.setGravity(Gravity.CENTER);
             list.addView(empty);
         } else {
             String[] rows = injectionHistory.split("\\n");
             int shown = 0;
-            for (int i = rows.length - 1; i >= 0 && shown < 30; i--) {
-                String row = rows[i];
-                if (row.trim().isEmpty()) continue;
-                String[] parts = row.split("\\|");
-                String display; boolean isEvent = false;
-                if (parts.length >= 4 && "EVENT".equals(parts[2])) {
-                    isEvent = true;
-                    String icon = "PLAN".equals(parts[3]) ? "↗" : "NEW_PEN".equals(parts[3]) ? "💉" : "CALIB".equals(parts[3]) ? "🎯" : "📏";
-                    display = parts[0] + "  " + parts[1] + "\n" + icon + "  " + tr("event_" + parts[3].toLowerCase()) + ": " + (parts.length > 4 ? parts[4] : "");
-                } else if (parts.length >= 8) {
-                    display = parts[0] + "  " + parts[1] + "\n" + parts[2] + " " + tr("clicks") + " · " + parts[3] + " mg · " + tr("rest") + ": " + parts[4] + "\n" + tr("plan") + ": " + parts[6] + " " + tr("clicks") + " · " + parts[7] + " mg";
-                } else if (parts.length >= 6) {
-                    display = parts[0] + "  " + parts[1] + "\n" + parts[2] + " " + tr("clicks") + " · " + parts[3] + " mg · " + tr("rest") + ": " + parts[4];
-                } else display = row;
-                TextView tv = new TextView(this);
-                tv.setText(display);
-                tv.setTextSize(13);
-                tv.setTextColor(isEvent ? muted : ink);
-                tv.setTypeface(null, isEvent ? android.graphics.Typeface.NORMAL : android.graphics.Typeface.BOLD);
-                tv.setPadding(dp(14), dp(10), dp(14), dp(10));
-                tv.setBackground(round(isEvent ? bg : card2, 18));
-                if (isEvent) {
-                    GradientDrawable border = new GradientDrawable();
-                    border.setColor(bg); border.setCornerRadius(dp(18));
-                    border.setStroke(dp(1), Color.rgb(50,50,55));
-                    tv.setBackground(border);
-                }
+            for (int i = rows.length - 1; i >= 0 && shown < 40; i--) {
+                String row = rows[i].trim();
+                if (row.isEmpty()) continue;
+                String[] p = row.split("\\|");
+
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
                 lp.setMargins(0, dp(6), 0, 0);
-                list.addView(tv, lp);
+
+                // ── Event card (calibration, new pen, plan change) ──────────
+                if (p.length >= 4 && "EVENT".equals(p[2])) {
+                    String icon = "NEW_PEN".equals(p[3]) ? "💉" : "CALIB".equals(p[3]) ? "🎯" : "MEASURE".equals(p[3]) ? "📏" : "↗";
+                    LinearLayout card = new LinearLayout(this);
+                    card.setOrientation(LinearLayout.HORIZONTAL);
+                    card.setGravity(Gravity.CENTER_VERTICAL);
+                    card.setPadding(dp(14), dp(10), dp(14), dp(10));
+                    GradientDrawable border = new GradientDrawable();
+                    border.setColor(bg); border.setCornerRadius(dp(16));
+                    border.setStroke(dp(1), Color.rgb(45, 45, 50));
+                    card.setBackground(border);
+                    TextView iconTv = text(icon, 18, ink, false);
+                    iconTv.setPadding(0, 0, dp(12), 0);
+                    LinearLayout cardTexts = new LinearLayout(this);
+                    cardTexts.setOrientation(LinearLayout.VERTICAL);
+                    cardTexts.addView(text(tr("event_" + p[3].toLowerCase()), 13, muted, true));
+                    if (p.length > 4) cardTexts.addView(text(p[4], 12, muted, false));
+                    cardTexts.addView(text(p[0] + "  " + p[1], 11, Color.rgb(90,90,100), false));
+                    card.addView(iconTv);
+                    card.addView(cardTexts, new LinearLayout.LayoutParams(0, -2, 1));
+                    list.addView(card, lp);
+
+                // ── Dose card (new format: date|time|pen#|target|actual|mg|rest|total) ──
+                } else if (p.length >= 7) {
+                    LinearLayout card = roundedBox(card2, 16, dp(14));
+                    // Top row: date + pen number
+                    LinearLayout topRow = new LinearLayout(this);
+                    topRow.setOrientation(LinearLayout.HORIZONTAL);
+                    String penLabel = tr("pen_label") + " #" + p[2];
+                    topRow.addView(text(p[0] + "  " + p[1], 12, muted, false));
+                    TextView penLbl = text(penLabel, 12, muted, false);
+                    penLbl.setGravity(Gravity.END);
+                    topRow.addView(penLbl, new LinearLayout.LayoutParams(0, -2, 1));
+                    card.addView(topRow, new LinearLayout.LayoutParams(-1, -2));
+                    // Main: actual clicks
+                    boolean offTarget = !p[3].equals(p[4]);
+                    String clickLine = p[4] + " " + tr("clicks");
+                    if (offTarget) clickLine += "  (" + tr("target") + ": " + p[3] + ")";
+                    TextView clicksTv = text(clickLine, 22, ink, true);
+                    clicksTv.setPadding(0, dp(4), 0, 0);
+                    card.addView(clicksTv);
+                    // Sub: mg + rest
+                    card.addView(text("~" + p[5] + " mg  ·  " + tr("rest") + ": " + p[6] + " " + tr("clicks"), 13, muted, false));
+                    list.addView(card, lp);
+
+                // ── Legacy dose card (old format) ───────────────────────────
+                } else if (p.length >= 5) {
+                    LinearLayout card = roundedBox(card2, 16, dp(14));
+                    card.addView(text(p[0] + "  " + p[1], 12, muted, false));
+                    card.addView(text(p[2] + " " + tr("clicks"), 22, ink, true));
+                    card.addView(text("~" + p[3] + " mg  ·  " + tr("rest") + ": " + p[4], 13, muted, false));
+                    list.addView(card, lp);
+                }
                 shown++;
             }
         }
         scroll.addView(list);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, dp(340));
-        slp.setMargins(0, dp(8), 0, dp(4));
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, -2);
+        slp.setMargins(0, dp(6), 0, dp(4));
+        scroll.getViewTreeObserver().addOnPreDrawListener(() -> {
+            if (scroll.getHeight() > dp(420)) { android.view.ViewGroup.LayoutParams lp2 = scroll.getLayoutParams(); lp2.height = dp(420); scroll.setLayoutParams(lp2); } return true; });
         box.addView(scroll, slp);
+
+        AlertDialog[] dlgRef = {null};
+
+        LinearLayout footer = new LinearLayout(this);
+        footer.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(-1, -2);
+        fLp.setMargins(0, dp(8), 0, dp(4));
 
         Button clear = pillButton(tr("clear_history"), Color.rgb(50,20,20), Color.rgb(200,80,80));
         clear.setTextSize(13);
         clear.setOnClickListener(v -> new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
             .setMessage(tr("clear_history_confirm"))
-            .setPositiveButton(tr("clear_history"), (d,w) -> { injectionHistory = ""; savePrefs(); Toast.makeText(this, tr("history_cleared"), Toast.LENGTH_SHORT).show(); })
+            .setPositiveButton(tr("clear_history"), (d, w) -> {
+                injectionHistory = ""; savePrefs();
+                if (dlgRef[0] != null) dlgRef[0].dismiss();
+                Toast.makeText(this, tr("history_cleared"), Toast.LENGTH_SHORT).show();
+            })
             .setNegativeButton(tr("cancel"), null).show());
-        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, dp(44));
-        clp.gravity = Gravity.END; clp.setMargins(0, dp(4), 0, 0);
-        box.addView(clear, clp);
-        new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box).setPositiveButton("OK", null).show();
+
+        Button close = pillButton(tr("close"), track, muted);
+        close.setOnClickListener(v -> { if (dlgRef[0] != null) dlgRef[0].dismiss(); });
+
+        footer.addView(clear, new LinearLayout.LayoutParams(0, dp(46), 1));
+        footer.addView(new Space(this), new LinearLayout.LayoutParams(dp(10), 1));
+        footer.addView(close, new LinearLayout.LayoutParams(0, dp(46), 1));
+        box.addView(footer, fLp);
+
+        AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+            .setView(box).create();
+        dlgRef[0] = dlg;
+        if (dlg.getWindow() != null) dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        dlg.show();
+        if (dlg.getWindow() != null) dlg.getWindow().setLayout(-1, -2);
     }
 
     private void showLanguageDialog() {
@@ -543,15 +607,17 @@ public class MainActivity extends Activity {
                 .setTitle(tr("new_pen"))
                 .setMessage(tr("new_pen_measure_prompt"))
                 .setPositiveButton(tr("measure_now"), (d, w) -> {
+                    penNumber++;
                     remainingClicks = fullClickDoses * dosesPerPen;
                     savePrefs(); refreshUi();
-                    logEvent("NEW_PEN", fullClickDoses * dosesPerPen + " clicks (measuring)");
+                    logEvent("NEW_PEN", "Pen #" + penNumber + " · measuring");
                     startFullDoseMeasureFullscreen();
                 })
                 .setNeutralButton(tr("use_saved"), (d, w) -> {
+                    penNumber++;
                     remainingClicks = fullClickDoses * dosesPerPen;
                     savePrefs(); refreshUi();
-                    logEvent("NEW_PEN", fullClickDoses * dosesPerPen + " clicks");
+                    logEvent("NEW_PEN", "Pen #" + penNumber + " · " + (fullClickDoses * dosesPerPen) + " clicks");
                     Toast.makeText(this, String.format(tr("new_pen_set_toast"), fullClickDoses * dosesPerPen), Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton(tr("cancel"), null)
@@ -612,7 +678,9 @@ public class MainActivity extends Activity {
             .setView(box).create();
         dlgRef[0] = dlg;
         close.setOnClickListener(v -> dlg.dismiss());
+        if (dlg.getWindow() != null) dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
         dlg.show();
+        if (dlg.getWindow() != null) dlg.getWindow().setLayout(-1, -2);
     }
 
     private void refreshUi() {
@@ -706,9 +774,18 @@ public class MainActivity extends Activity {
         int restAfter = Math.max(0, remainingClicks - used);
         java.text.SimpleDateFormat df = new java.text.SimpleDateFormat("yyyy-MM-dd|HH:mm", Locale.getDefault());
         String stamp = df.format(new java.util.Date());
-        injectionHistory = (injectionHistory == null ? "" : injectionHistory) + stamp + "|" + used + "|" + String.format(Locale.US, "%.2f", mg) + "|" + (fullClickDoses*dosesPerPen) + "|" + restAfter + "|" + targetClicks + "|" + String.format(Locale.US, "%.2f", targetMg) + "\n";
+        // Format: date|time|pen#|targetClicks|actualClicks|mg|restAfter|totalClicks
+        injectionHistory = (injectionHistory == null ? "" : injectionHistory)
+            + stamp
+            + "|" + penNumber
+            + "|" + targetClicks
+            + "|" + used
+            + "|" + String.format(Locale.US, "%.2f", mg)
+            + "|" + restAfter
+            + "|" + (fullClickDoses * dosesPerPen)
+            + "\n";
         remainingClicks = restAfter;
-        count = 0; targetReachedBuzzed=false; mode=Mode.IDLE; stopAudio(); savePrefs();
+        count = 0; targetReachedBuzzed = false; mode = Mode.IDLE; stopAudio(); savePrefs();
         getSharedPreferences(PREF, MODE_PRIVATE).edit().putInt("countInProgress", -1).apply();
     }
 
@@ -823,7 +900,7 @@ public class MainActivity extends Activity {
                 case "clicks": return "clicks";
                 case "rest": return "Rest";
                 case "history_title": return "Injection log";
-                case "history_hint": return "Stored locally: date, time, clicks, calculated mg and remaining pen clicks.";
+                case "history_hint": return "Stored locally. Clicks are the source of truth.";
                 case "history_empty": return "No saved doses yet.";
                 case "clear_history": return "Clear history";
                 case "history_cleared": return "History cleared";
@@ -919,6 +996,7 @@ public class MainActivity extends Activity {
                 case "onboarding_rings": return "The green ring shows how much of your pen is left. The number in the centre is your dose for this week.";
                 case "this_week": return "THIS WEEK";
                 case "start_counting": return "Start counting →";
+                case "pen_label": return "Pen";
             }
         } else {
             switch (key) {
@@ -930,7 +1008,7 @@ public class MainActivity extends Activity {
                 case "clicks": return "Klicks";
                 case "rest": return "Rest";
                 case "history_title": return "Protokoll";
-                case "history_hint": return "Lokal gespeichert: Datum, Zeit, Klicks, berechnete mg und Restklicks im Pen.";
+                case "history_hint": return "Lokal gespeichert. Klicks sind die Wahrheit.";
                 case "history_empty": return "Noch keine gespeicherte Dosis.";
                 case "clear_history": return "Protokoll löschen";
                 case "history_cleared": return "Protokoll gelöscht";
@@ -1033,8 +1111,8 @@ public class MainActivity extends Activity {
 
     private double readDouble(EditText e,double f){ try{return Double.parseDouble(e.getText().toString().replace(',','.'));}catch(Exception x){return f;} }
     private int readInt(EditText e,int f){ try{return (int)Math.round(Double.parseDouble(e.getText().toString().replace(',','.')));}catch(Exception x){return f;} }
-    private void loadPrefs(){ SharedPreferences p=getSharedPreferences(PREF,MODE_PRIVATE); strengthMg=Double.longBitsToDouble(p.getLong("strength",Double.doubleToLongBits(2.4))); dosesPerPen=p.getInt("doses",4); fullClickDoses=p.getInt("fullClicks",74); remainingClicks=p.getInt("remaining",fullClickDoses*dosesPerPen); targetMg=Double.longBitsToDouble(p.getLong("target",Double.doubleToLongBits(1.2))); thresholdFactor=Double.longBitsToDouble(p.getLong("factor",Double.doubleToLongBits(0.38))); noiseAvgJump=Double.longBitsToDouble(p.getLong("noise",Double.doubleToLongBits(180.0))); calibratedClickPeak=Double.longBitsToDouble(p.getLong("clickPeak",Double.doubleToLongBits(2600.0))); cooldownMs=p.getInt("cooldown",80); language=p.getString("language","en"); penName=p.getString("penName",""); injectionHistory=p.getString("history",""); }
-    private void savePrefs(){ getSharedPreferences(PREF,MODE_PRIVATE).edit().putLong("strength",Double.doubleToLongBits(strengthMg)).putInt("doses",dosesPerPen).putInt("fullClicks",fullClickDoses).putInt("remaining",remainingClicks).putLong("target",Double.doubleToLongBits(targetMg)).putLong("factor",Double.doubleToLongBits(thresholdFactor)).putLong("noise",Double.doubleToLongBits(noiseAvgJump)).putLong("clickPeak",Double.doubleToLongBits(calibratedClickPeak)).putInt("cooldown",cooldownMs).putString("language",language).putString("penName",penName).putString("history",injectionHistory).apply(); }
+    private void loadPrefs(){ SharedPreferences p=getSharedPreferences(PREF,MODE_PRIVATE); drugName=p.getString("drugName",""); strengthMg=Double.longBitsToDouble(p.getLong("strength",Double.doubleToLongBits(2.4))); dosesPerPen=p.getInt("doses",4); fullClickDoses=p.getInt("fullClicks",74); remainingClicks=p.getInt("remaining",fullClickDoses*dosesPerPen); targetMg=Double.longBitsToDouble(p.getLong("target",Double.doubleToLongBits(1.2))); targetClicks=p.getInt("targetClicks",37); penNumber=p.getInt("penNumber",1); thresholdFactor=Double.longBitsToDouble(p.getLong("factor",Double.doubleToLongBits(0.38))); noiseAvgJump=Double.longBitsToDouble(p.getLong("noise",Double.doubleToLongBits(180.0))); calibratedClickPeak=Double.longBitsToDouble(p.getLong("clickPeak",Double.doubleToLongBits(2600.0))); cooldownMs=p.getInt("cooldown",80); language=p.getString("language","en"); penName=p.getString("penName",""); injectionHistory=p.getString("history",""); }
+    private void savePrefs(){ getSharedPreferences(PREF,MODE_PRIVATE).edit().putString("drugName",drugName).putLong("strength",Double.doubleToLongBits(strengthMg)).putInt("doses",dosesPerPen).putInt("fullClicks",fullClickDoses).putInt("remaining",remainingClicks).putLong("target",Double.doubleToLongBits(targetMg)).putInt("targetClicks",targetClicks).putInt("penNumber",penNumber).putLong("factor",Double.doubleToLongBits(thresholdFactor)).putLong("noise",Double.doubleToLongBits(noiseAvgJump)).putLong("clickPeak",Double.doubleToLongBits(calibratedClickPeak)).putInt("cooldown",cooldownMs).putString("language",language).putString("penName",penName).putString("history",injectionHistory).apply(); }
     @Override protected void onDestroy(){ audioActive=false; super.onDestroy(); }
 
     public class SegmentedRingView extends View {
