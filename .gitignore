@@ -1,11 +1,14 @@
-# Project exclude paths
-/.gradle/
-/app/build/
-/app/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/
-/build/gradle.properties
-*.jks
+# Build outputs
 build/
+app/build/
+.gradle/
+
+# IDE files
 .idea/
+
+# Local configuration (machine-specific)
 local.properties
+
+# Signing config — NEVER commit secrets
 gradle.properties
 *.jks
