@@ -20,6 +20,9 @@ public class MainActivity extends Activity {
     private static final String PREF = "clickdose_prefs";
     private enum Mode { IDLE, COUNTING, CALIBRATING_NOISE, CALIBRATING_CLICKS, MEASURE_FULL }
 
+    /** Internal plan intention. Not exposed as a setting — only changed at new pen. */
+    private enum PlanMode { KEEP_CURRENT, REDUCE_TO_TARGET }
+
     private volatile boolean audioActive = false;
     private volatile Mode mode = Mode.IDLE;
     private Thread audioThread;
@@ -55,6 +58,7 @@ public class MainActivity extends Activity {
     private int currentPlanClicks = 37;    // clicks per week for current pen
     private int targetPlanClicks = 1;      // absolute floor — never reduce below this
     private boolean planActive = false;    // true once user has set a plan
+    private PlanMode planMode = PlanMode.KEEP_CURRENT; // current plan intention
 
     private boolean targetReachedBuzzed = false;
     private String language = "en";
@@ -130,44 +134,122 @@ public class MainActivity extends Activity {
         EditText doses = input(String.valueOf(dosesPerPen), tr("doses_per_pen"));
         EditText full = input(String.valueOf(fullClickDoses), tr("clicks_per_dose"));
         TextView clicksHint = text(tr("pen_clicks_hint"), 11, muted, false);
-        clicksHint.setPadding(0, dp(2), 0, dp(6));
-        // Current weekly dose — defaults to full dose, editable for users already reducing
-        EditText weekly = input(String.valueOf(currentPlanClicks > 0 ? currentPlanClicks : fullClickDoses), tr("weekly_clicks_hint"));
-        TextView weeklyHint = text(tr("weekly_clicks_subhint"), 11, muted, false);
-        weeklyHint.setPadding(0, dp(2), 0, dp(6));
+        clicksHint.setPadding(0, dp(2), 0, dp(8));
         box.addView(labelled(tr("pen_name_label"), name));
         box.addView(labelled(tr("full_dose_label"), strength));
         box.addView(labelled(tr("doses_per_pen"), doses));
         box.addView(labelled(tr("clicks_per_dose"), full));
         box.addView(clicksHint);
-        box.addView(labelled(tr("weekly_clicks_label"), weekly));
-        box.addView(weeklyHint);
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box)
             .setCancelable(false)
-            .setPositiveButton(tr("done"), (d, w) -> {
+            .setPositiveButton(tr("next"), (d, w) -> {
                 penName = name.getText().toString().trim();
                 strengthMg = readDouble(strength, strengthMg);
                 dosesPerPen = Math.max(1, readInt(doses, dosesPerPen));
                 fullClickDoses = Math.max(1, readInt(full, fullClickDoses));
                 remainingClicks = fullClickDoses * dosesPerPen;
-                targetMg = strengthMg; // user enters mg per injection, not total pen content
-                recomputeTarget(); // sets targetClicks = fullClickDoses
-                // Override with user's actual current weekly dose (may be reduced)
-                int weeklyClicks = Math.max(1, Math.min(fullClickDoses, readInt(weekly, fullClickDoses)));
-                targetClicks = weeklyClicks;
-                targetMg = targetClicks * (strengthMg / Math.max(1, fullClickDoses));
-                currentPlanClicks = targetClicks;
-                // targetPlanClicks is the absolute floor — don't reset it on recalibration
-                planActive = true;
-                savePrefs(); buildHomeUi(); refreshUi();
-                new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
-                    .setTitle(tr("calibrate_prompt_title"))
-                    .setMessage(tr("calibrate_prompt_msg"))
-                    .setPositiveButton(tr("calibrate"), (d2, w2) -> startCalibrationFullscreen())
-                    .setNegativeButton(tr("skip_for_now"), null)
-                    .show();
+                targetMg = strengthMg;
+                recomputeTarget();
+                savePrefs();
+                // Step 2: ask about starting dose
+                showInitialPlanDialog();
             })
             .show();
+    }
+
+    private void showInitialPlanDialog() {
+        LinearLayout box = dialogBox();
+        box.addView(text(tr("setup_plan_title"), 24, ink, true));
+        TextView sub = text(tr("setup_plan_subtitle"), 14, muted, false);
+        sub.setPadding(0, dp(4), 0, dp(14));
+        box.addView(sub);
+
+        double mgPerClick = strengthMg / Math.max(1, fullClickDoses);
+
+        LinearLayout freshCard = optionCard(
+            "✓  " + tr("setup_fresh"),
+            String.format(Locale.US, "%d " + tr("clicks") + "  ·  ~%.2f mg", fullClickDoses, strengthMg),
+            accent);
+        LinearLayout reduceCard = optionCard(
+            "↓  " + tr("setup_already_reducing"),
+            tr("setup_already_reducing_sub"),
+            blue);
+        reduceCard.setPadding(dp(16), dp(14), dp(16), dp(14));
+        reduceCard.setClickable(true); reduceCard.setFocusable(true);
+
+        EditText currentInput = input(String.valueOf(fullClickDoses), tr("weekly_clicks_hint"));
+        currentInput.setVisibility(View.GONE);
+        LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(-1, -2);
+        inputLp.setMargins(0, dp(4), 0, 0);
+        currentInput.setLayoutParams(inputLp);
+
+        final boolean[] chooseReduce = {false};
+        freshCard.setOnClickListener(v -> {
+            chooseReduce[0] = false;
+            freshCard.setBackground(round(accent, 18));
+            reduceCard.setBackground(round(card2, 18));
+            currentInput.setVisibility(View.GONE);
+        });
+        reduceCard.setOnClickListener(v -> {
+            chooseReduce[0] = true;
+            reduceCard.setBackground(round(blue, 18));
+            freshCard.setBackground(round(card2, 18));
+            currentInput.setVisibility(View.VISIBLE);
+        });
+        freshCard.setBackground(round(accent, 18)); // default: fresh start selected
+
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
+        cardLp.setMargins(0, 0, 0, dp(10));
+        freshCard.setLayoutParams(cardLp);
+
+        box.addView(freshCard);
+        box.addView(reduceCard);
+        box.addView(currentInput);
+
+        // Back / Confirm row
+        LinearLayout btnRow = new LinearLayout(this);
+        btnRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams btnRowLp = new LinearLayout.LayoutParams(-1, -2);
+        btnRowLp.setMargins(0, dp(18), 0, dp(8));
+        btnRow.setLayoutParams(btnRowLp);
+
+        AlertDialog[] dlgRef = {null};
+
+        Button back = pillButton(tr("back"), track, muted);
+        back.setOnClickListener(v -> { if (dlgRef[0] != null) dlgRef[0].dismiss(); showProfileDialogWithPlannerNext(); });
+        btnRow.addView(back, new LinearLayout.LayoutParams(0, dp(52), 1));
+
+        Space btnSp = new Space(this);
+        btnRow.addView(btnSp, new LinearLayout.LayoutParams(dp(10), 1));
+
+        Button confirm = pillButton(tr("setup_plan_confirm"), accent, Color.rgb(4, 23, 14));
+        confirm.setOnClickListener(v -> {
+            int clicks = chooseReduce[0]
+                ? Math.max(1, Math.min(fullClickDoses, readInt(currentInput, fullClickDoses)))
+                : fullClickDoses;
+            planMode = chooseReduce[0] ? PlanMode.REDUCE_TO_TARGET : PlanMode.KEEP_CURRENT;
+            targetClicks = clicks;
+            targetMg = clicks * mgPerClick;
+            currentPlanClicks = clicks;
+            planActive = true;
+            if (dlgRef[0] != null) dlgRef[0].dismiss();
+            savePrefs(); buildHomeUi(); refreshUi();
+            new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+                .setTitle(tr("calibrate_prompt_title"))
+                .setMessage(tr("calibrate_prompt_msg"))
+                .setPositiveButton(tr("calibrate"), (d2, w2) -> startCalibrationFullscreen())
+                .setNegativeButton(tr("skip_for_now"), null)
+                .show();
+        });
+        btnRow.addView(confirm, new LinearLayout.LayoutParams(0, dp(52), 2));
+        box.addView(btnRow);
+
+        AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+            .setView(box).setCancelable(false).create();
+        dlgRef[0] = dlg;
+        dlg.show();
+        android.view.Window win = dlg.getWindow();
+        if (win != null) { win.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)); win.setLayout(-1, -2); }
     }
 
     private void buildHomeUi() {
@@ -624,14 +706,15 @@ public class MainActivity extends Activity {
     }
 
     private void confirmNewPen() {
-        // Step 1: ask keep or reduce
         LinearLayout box = dialogBox();
         box.addView(text(tr("new_pen"), 24, ink, true));
-        box.addView(text(tr("new_pen_plan_question"), 14, muted, false));
+        TextView sub = text(tr("new_pen_plan_question"), 14, muted, false);
+        sub.setPadding(0, dp(4), 0, dp(14));
+        box.addView(sub);
 
-        // Current plan info
         double mgPerClick = strengthMg / Math.max(1, fullClickDoses);
-        // Reduce by 15%, then optimise for zero remainder within ±5
+
+        // Compute the reduced target (0.85×, optimised for zero remainder)
         int reducedClicks = Math.max(targetPlanClicks, (int) Math.round(currentPlanClicks * 0.85));
         int total = fullClickDoses * dosesPerPen;
         if (reducedClicks > 0 && total % reducedClicks != 0) {
@@ -643,33 +726,51 @@ public class MainActivity extends Activity {
         }
         final int finalReduced = Math.max(targetPlanClicks, Math.max(1, reducedClicks));
 
-        // Option cards
+        // Default selection follows saved planMode
+        final boolean[] chooseReduce = { planMode == PlanMode.REDUCE_TO_TARGET };
+
         LinearLayout keepCard = optionCard(
-            "✓  " + tr("plan_keep"),
+            "○  " + tr("plan_keep"),
             String.format(Locale.US, "%d " + tr("clicks") + "  ·  ~%.2f mg", currentPlanClicks, currentPlanClicks * mgPerClick),
             accent);
         LinearLayout reduceCard = optionCard(
-            "↓  " + tr("plan_reduce"),
+            "○  " + tr("plan_reduce"),
             String.format(Locale.US, "%d " + tr("clicks") + "  ·  ~%.2f mg", finalReduced, finalReduced * mgPerClick),
             blue);
 
-        final boolean[] chooseReduce = {false};
-        keepCard.setOnClickListener(v -> { chooseReduce[0] = false; keepCard.setBackground(round(accent, 18)); keepCard.getChildAt(0).setAlpha(1f); reduceCard.setBackground(round(card2, 18)); });
-        reduceCard.setOnClickListener(v -> { chooseReduce[0] = true; reduceCard.setBackground(round(blue, 18)); keepCard.setBackground(round(card2, 18)); });
+        // Apply initial selection visually
+        Runnable updateCards = () -> {
+            keepCard.getChildAt(0).setAlpha(chooseReduce[0] ? 0.5f : 1f);
+            ((TextView) keepCard.getChildAt(0)).setText((chooseReduce[0] ? "○  " : "●  ") + tr("plan_keep"));
+            keepCard.setBackground(round(chooseReduce[0] ? card2 : accent, 18));
+            ((TextView) reduceCard.getChildAt(0)).setText((chooseReduce[0] ? "●  " : "○  ") + tr("plan_reduce"));
+            reduceCard.setBackground(round(chooseReduce[0] ? blue : card2, 18));
+        };
+        updateCards.run();
 
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, dp(10), 0, 0);
-        box.addView(keepCard, lp);
-        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(-1, -2);
-        lp2.setMargins(0, dp(8), 0, 0);
-        box.addView(reduceCard, lp2);
+        keepCard.setOnClickListener(v -> { chooseReduce[0] = false; updateCards.run(); });
+        reduceCard.setOnClickListener(v -> { chooseReduce[0] = true; updateCards.run(); });
+
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
+        cardLp.setMargins(0, 0, 0, dp(10));
+        box.addView(keepCard, cardLp);
+        box.addView(reduceCard);
+
+        // Back / Continue row
+        LinearLayout btnRow = new LinearLayout(this);
+        btnRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams btnRowLp = new LinearLayout.LayoutParams(-1, -2);
+        btnRowLp.setMargins(0, dp(20), 0, dp(4));
 
         AlertDialog[] dlgRef = {null};
-        Button confirm = pillButton(tr("new_pen_start"), accent, Color.rgb(4,23,14));
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, dp(52));
-        blp.setMargins(0, dp(18), 0, dp(4));
+
+        Button back = pillButton(tr("back"), track, muted);
+        back.setOnClickListener(v -> { if (dlgRef[0] != null) dlgRef[0].dismiss(); });
+
+        Button confirm = pillButton(tr("continue"), accent, Color.rgb(4, 23, 14));
         confirm.setOnClickListener(v -> {
             if (dlgRef[0] != null) dlgRef[0].dismiss();
+            planMode = chooseReduce[0] ? PlanMode.REDUCE_TO_TARGET : PlanMode.KEEP_CURRENT;
             penNumber++;
             remainingClicks = fullClickDoses * dosesPerPen;
             if (chooseReduce[0]) {
@@ -682,14 +783,17 @@ public class MainActivity extends Activity {
             targetMg = targetClicks * mgPerClick;
             planActive = true;
             savePrefs(); buildHomeUi(); refreshUi();
-            // Optional: measure new pen
             new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
                 .setMessage(tr("new_pen_measure_prompt"))
                 .setPositiveButton(tr("measure_now"), (d2, w2) -> startFullDoseMeasureFullscreen())
                 .setNegativeButton(tr("skip_for_now"), null)
                 .show();
         });
-        box.addView(confirm, blp);
+
+        btnRow.addView(back, new LinearLayout.LayoutParams(0, dp(52), 1));
+        Space sp = new Space(this); btnRow.addView(sp, new LinearLayout.LayoutParams(dp(10), 1));
+        btnRow.addView(confirm, new LinearLayout.LayoutParams(0, dp(52), 2));
+        box.addView(btnRow, btnRowLp);
 
         AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
             .setView(box).create();
@@ -751,12 +855,14 @@ public class MainActivity extends Activity {
         String[][] items = {
             {"🛑", tr("pen_reached_stop"),  tr("pen_reached_stop_desc")},
             {"💉", tr("new_pen"),            tr("more_newpen_desc")},
+            {"📋", tr("plan_settings_title"), tr("plan_settings_desc")},
             {"📏", tr("measure_full"),       tr("more_measure_desc")},
             {"🌐", "Language / Sprache",     tr("more_lang_desc")},
         };
         Runnable[] actions = {
             () -> { dlgRef[0].dismiss(); markPenEmpty(); },
             () -> { dlgRef[0].dismiss(); confirmNewPen(); },
+            () -> { dlgRef[0].dismiss(); showPlanSettingsDialog(); },
             () -> { dlgRef[0].dismiss(); startFullDoseMeasureFullscreen(); },
             () -> { dlgRef[0].dismiss(); showLanguageDialog(); },
         };
@@ -794,6 +900,42 @@ public class MainActivity extends Activity {
         AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
             .setView(box).create();
         dlgRef[0] = dlg;
+        close.setOnClickListener(v -> dlg.dismiss());
+        if (dlg.getWindow() != null) dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        dlg.show();
+        if (dlg.getWindow() != null) dlg.getWindow().setLayout(-1, -2);
+    }
+
+    /** Settings → Plan: shows current plan mode. Placeholder for future plan controls. */
+    private void showPlanSettingsDialog() {
+        LinearLayout box = dialogBox();
+        box.addView(text(tr("plan_settings_title"), 24, ink, true));
+        TextView sub = text(tr("plan_settings_desc"), 13, muted, false);
+        sub.setPadding(0, dp(4), 0, dp(16));
+        box.addView(sub);
+
+        // Current plan mode display
+        String currentModeLabel = planMode == PlanMode.REDUCE_TO_TARGET
+            ? tr("plan_reduce") : tr("plan_keep");
+        LinearLayout modeRow = roundedBox(card2, 20, dp(16));
+        modeRow.setOrientation(LinearLayout.VERTICAL);
+        modeRow.addView(text(tr("plan_current_mode"), 12, muted, true));
+        modeRow.addView(text(currentModeLabel, 16, ink, true));
+        box.addView(modeRow, new LinearLayout.LayoutParams(-1, -2));
+
+        // Placeholder note
+        TextView note = text(tr("plan_settings_future"), 13, muted, false);
+        note.setPadding(0, dp(16), 0, dp(8));
+        box.addView(note);
+
+        Button close = pillButton(tr("close"), track, muted);
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-1, dp(50));
+        clp.setMargins(0, dp(16), 0, dp(4));
+        close.setOnClickListener(v -> {});  // replaced after dialog create
+        box.addView(close, clp);
+
+        AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+            .setView(box).create();
         close.setOnClickListener(v -> dlg.dismiss());
         if (dlg.getWindow() != null) dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
         dlg.show();
@@ -1047,6 +1189,20 @@ public class MainActivity extends Activity {
                 case "weekly_clicks_label": return "This week's dose";
                 case "weekly_clicks_hint": return "clicks/week";
                 case "weekly_clicks_subhint": return "Already reducing? Enter your current weekly clicks. Otherwise leave as-is.";
+                case "next": return "Next →";
+                case "back": return "Back";
+                case "continue": return "Continue →";
+                case "setup_plan_title": return "Your starting dose";
+                case "setup_plan_subtitle": return "Are you starting fresh, or already on a reduced schedule?";
+                case "setup_fresh": return "Fresh start";
+                case "setup_already_reducing": return "Already reducing";
+                case "setup_already_reducing_sub": return "Enter your current weekly clicks below";
+                case "setup_plan_confirm": return "Set dose →";
+                case "plan_settings_title": return "Plan";
+                case "plan_settings_desc": return "Your dose reduction plan";
+                case "plan_current_mode": return "CURRENT MODE";
+                case "plan_settings_future": return "Future: pause reduction, set target dose, or change pace — coming soon.";
+
                 case "doses_per_pen": return "Doses per pen";
                 case "clicks_per_dose": return "Clicks per full dose";
                 case "remaining_hint": return "Remaining clicks";
@@ -1168,6 +1324,20 @@ public class MainActivity extends Activity {
                 case "weekly_clicks_label": return "Dosis diese Woche";
                 case "weekly_clicks_hint": return "Klicks/Woche";
                 case "weekly_clicks_subhint": return "Bereits am Reduzieren? Aktuelle Wochenklicks eingeben. Sonst so lassen.";
+                case "next": return "Weiter →";
+                case "back": return "Zurück";
+                case "continue": return "Weiter →";
+                case "setup_plan_title": return "Deine Startdosis";
+                case "setup_plan_subtitle": return "Startest du frisch, oder bist du bereits an einer reduzierten Dosis?";
+                case "setup_fresh": return "Volle Dosis";
+                case "setup_already_reducing": return "Bereits am Reduzieren";
+                case "setup_already_reducing_sub": return "Aktuelle Wochenklicks unten eingeben";
+                case "setup_plan_confirm": return "Dosis festlegen →";
+                case "plan_settings_title": return "Plan";
+                case "plan_settings_desc": return "Dein Dosisreduktionsplan";
+                case "plan_current_mode": return "AKTUELLER MODUS";
+                case "plan_settings_future": return "Demnächst: Reduktion pausieren, Zieldosis setzen oder Tempo ändern — kommt bald.";
+
                 case "doses_per_pen": return "Dosen pro Pen";
                 case "clicks_per_dose": return "Klicks pro Volldosis";
                 case "remaining_hint": return "Restklicks im Pen";
@@ -1260,8 +1430,8 @@ public class MainActivity extends Activity {
 
     private double readDouble(EditText e,double f){ try{return Double.parseDouble(e.getText().toString().replace(',','.'));}catch(Exception x){return f;} }
     private int readInt(EditText e,int f){ try{return (int)Math.round(Double.parseDouble(e.getText().toString().replace(',','.')));}catch(Exception x){return f;} }
-    private void loadPrefs(){ SharedPreferences p=getSharedPreferences(PREF,MODE_PRIVATE); drugName=p.getString("drugName",""); strengthMg=Double.longBitsToDouble(p.getLong("strength",Double.doubleToLongBits(2.4))); dosesPerPen=p.getInt("doses",4); fullClickDoses=p.getInt("fullClicks",74); remainingClicks=p.getInt("remaining",fullClickDoses*dosesPerPen); targetMg=Double.longBitsToDouble(p.getLong("target",Double.doubleToLongBits(1.2))); targetClicks=p.getInt("targetClicks",37); penNumber=p.getInt("penNumber",1); currentPlanClicks=p.getInt("currentPlanClicks",targetClicks); targetPlanClicks=p.getInt("targetPlanClicks",1); planActive=p.getBoolean("planActive",false); thresholdFactor=Double.longBitsToDouble(p.getLong("factor",Double.doubleToLongBits(0.38))); noiseAvgJump=Double.longBitsToDouble(p.getLong("noise",Double.doubleToLongBits(180.0))); calibratedClickPeak=Double.longBitsToDouble(p.getLong("clickPeak",Double.doubleToLongBits(2600.0))); cooldownMs=p.getInt("cooldown",80); language=p.getString("language","en"); penName=p.getString("penName",""); injectionHistory=p.getString("history",""); }
-    private void savePrefs(){ getSharedPreferences(PREF,MODE_PRIVATE).edit().putString("drugName",drugName).putLong("strength",Double.doubleToLongBits(strengthMg)).putInt("doses",dosesPerPen).putInt("fullClicks",fullClickDoses).putInt("remaining",remainingClicks).putLong("target",Double.doubleToLongBits(targetMg)).putInt("targetClicks",targetClicks).putInt("penNumber",penNumber).putInt("currentPlanClicks",currentPlanClicks).putInt("targetPlanClicks",targetPlanClicks).putBoolean("planActive",planActive).putLong("factor",Double.doubleToLongBits(thresholdFactor)).putLong("noise",Double.doubleToLongBits(noiseAvgJump)).putLong("clickPeak",Double.doubleToLongBits(calibratedClickPeak)).putInt("cooldown",cooldownMs).putString("language",language).putString("penName",penName).putString("history",injectionHistory).apply(); }
+    private void loadPrefs(){ SharedPreferences p=getSharedPreferences(PREF,MODE_PRIVATE); drugName=p.getString("drugName",""); strengthMg=Double.longBitsToDouble(p.getLong("strength",Double.doubleToLongBits(2.4))); dosesPerPen=p.getInt("doses",4); fullClickDoses=p.getInt("fullClicks",74); remainingClicks=p.getInt("remaining",fullClickDoses*dosesPerPen); targetMg=Double.longBitsToDouble(p.getLong("target",Double.doubleToLongBits(1.2))); targetClicks=p.getInt("targetClicks",37); penNumber=p.getInt("penNumber",1); currentPlanClicks=p.getInt("currentPlanClicks",targetClicks); targetPlanClicks=p.getInt("targetPlanClicks",1); planActive=p.getBoolean("planActive",false); try { planMode=PlanMode.valueOf(p.getString("planMode",PlanMode.KEEP_CURRENT.name())); } catch(Exception ignored){ planMode=PlanMode.KEEP_CURRENT; } thresholdFactor=Double.longBitsToDouble(p.getLong("factor",Double.doubleToLongBits(0.38))); noiseAvgJump=Double.longBitsToDouble(p.getLong("noise",Double.doubleToLongBits(180.0))); calibratedClickPeak=Double.longBitsToDouble(p.getLong("clickPeak",Double.doubleToLongBits(2600.0))); cooldownMs=p.getInt("cooldown",80); language=p.getString("language","en"); penName=p.getString("penName",""); injectionHistory=p.getString("history",""); }
+    private void savePrefs(){ getSharedPreferences(PREF,MODE_PRIVATE).edit().putString("drugName",drugName).putLong("strength",Double.doubleToLongBits(strengthMg)).putInt("doses",dosesPerPen).putInt("fullClicks",fullClickDoses).putInt("remaining",remainingClicks).putLong("target",Double.doubleToLongBits(targetMg)).putInt("targetClicks",targetClicks).putInt("penNumber",penNumber).putInt("currentPlanClicks",currentPlanClicks).putInt("targetPlanClicks",targetPlanClicks).putBoolean("planActive",planActive).putString("planMode",planMode.name()).putLong("factor",Double.doubleToLongBits(thresholdFactor)).putLong("noise",Double.doubleToLongBits(noiseAvgJump)).putLong("clickPeak",Double.doubleToLongBits(calibratedClickPeak)).putInt("cooldown",cooldownMs).putString("language",language).putString("penName",penName).putString("history",injectionHistory).apply(); }
     @Override protected void onDestroy(){ audioActive=false; super.onDestroy(); }
 
     public class SegmentedRingView extends View {
