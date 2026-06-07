@@ -14,13 +14,37 @@ import android.widget.*;
 
 import java.util.*;
 
+/**
+ * ClickPlan — single-activity app for tracking GLP-1 injection pen doses.
+ *
+ * Architecture: one Activity, no fragments, no ViewModel, no external dependencies.
+ * All persistence: SharedPreferences. All UI: programmatic (no XML layouts).
+ * Audio: AudioRecord at 48 kHz with peak detection for automatic click counting.
+ *
+ * Key business rules:
+ *  - Clicks are authoritative. mg values are always derived from clicks.
+ *  - Dose changes happen ONLY when a new pen starts — never mid-pen.
+ *    (Reason: mid-pen changes create a remainder that cannot be cleanly reconciled.)
+ *  - The pen endpoint is the truth. If the pen stops early, the app adjusts silently.
+ *  - The user should never calculate or plan manually.
+ *
+ * See docs/VISION.md and docs/PRINCIPLES.md for full product philosophy.
+ */
 public class MainActivity extends Activity {
-    private static final int REQ_AUDIO = 7;
-    private static final int SAMPLE_RATE = 48000;
-    private static final String PREF = "clickdose_prefs";
+
+    // ── Constants ────────────────────────────────────────────────────────────
+    private static final int    REQ_AUDIO   = 7;
+    private static final int    SAMPLE_RATE = 48_000;  // Hz — 48 kHz for reliable click detection
+    private static final String PREF        = "clickdose_prefs";
+
+    // ── Enums ────────────────────────────────────────────────────────────────
     private enum Mode { IDLE, COUNTING, CALIBRATING_NOISE, CALIBRATING_CLICKS, MEASURE_FULL }
 
-    /** Internal plan intention. Not exposed as a setting — only changed at new pen. */
+    /**
+     * Internal plan intention — persisted across sessions.
+     * Not exposed as a user-facing setting. Changes only at new pen start.
+     * See confirmNewPen() for where this is set.
+     */
     private enum PlanMode { KEEP_CURRENT, REDUCE_TO_TARGET }
 
     private volatile boolean audioActive = false;
@@ -54,11 +78,14 @@ public class MainActivity extends Activity {
     private int penNumber = 1;             // pen counter — increments at new pen
 
     // ── Plan model ───────────────────────────────────────────────────────────
-    // Dose changes only happen when starting a new pen.
-    private int currentPlanClicks = 37;    // clicks per week for current pen
-    private int targetPlanClicks = 1;      // absolute floor — never reduce below this
-    private boolean planActive = false;    // true once user has set a plan
-    private PlanMode planMode = PlanMode.KEEP_CURRENT; // current plan intention
+    // WHY dose changes happen only at new pen:
+    //   Changing dose mid-pen creates a click remainder that cannot be divided cleanly.
+    //   By design, the only moment to change dose is when a fresh pen starts at full capacity.
+    //   This also gives the user a natural psychological checkpoint.
+    private int currentPlanClicks = 37;    // clicks/week for the current pen (set at new pen start)
+    private int targetPlanClicks  = 1;     // absolute floor — reduction never goes below this
+    private boolean planActive    = false; // false until user completes first pen setup
+    private PlanMode planMode = PlanMode.KEEP_CURRENT; // user's last intention, pre-selected at next new pen
 
     private boolean targetReachedBuzzed = false;
     private String language = "en";
@@ -456,115 +483,6 @@ public class MainActivity extends Activity {
                 .setNegativeButton(tr("cancel"), null).show();
     }
 
-    private void showPlannerDialog() {
-        int total = fullClickDoses * dosesPerPen;
-        double mgPerClick = strengthMg / Math.max(1, fullClickDoses);
-
-        LinearLayout box = dialogBox();
-        box.addView(text(tr("planner_title"), 24, ink, true));
-        box.addView(text(tr("planner_hint"), 13, muted, false));
-
-        final double[] selectedMg = {-1};
-        final TextView[] selectedRow = {null};
-        final Button[] activateBtn = {null};
-
-        ArrayList<int[]> plans = new ArrayList<>();
-        for (int weeks = 4; weeks <= 12; weeks++) {
-            int low = total / weeks;
-            if (low < 1) break;
-            plans.add(new int[]{weeks, low, total % weeks});
-        }
-
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(0, dp(4), 0, dp(4));
-
-        for (int[] p : plans) {
-            int weeks = p[0]; int low = p[1]; int extra = p[2];
-            double avgMg = (total / (double) weeks) * mgPerClick;
-            boolean isCurrent = (Math.round(targetMg * 100) == Math.round(avgMg * 100));
-
-            String label = extra == 0
-                ? String.format(Locale.US, "%d " + tr("weeks") + " · %d " + tr("clicks_per_week") + " · %.2f mg", weeks, low, low * mgPerClick)
-                : String.format(Locale.US, "%d " + tr("weeks") + " · %dx%d + %dx%d " + tr("clicks") + " · Ø %.2f mg", weeks, weeks - extra, low, extra, low + 1, avgMg);
-
-            String rowText = (isCurrent ? "✓  " : "     ") + label;
-            TextView row = text(rowText, 15, isCurrent ? Color.rgb(4,23,14) : ink, isCurrent);
-            row.setPadding(dp(14), dp(12), dp(14), dp(12));
-            row.setBackground(round(isCurrent ? accent : card2, 18));
-            row.setTag(new Object[]{avgMg, label});
-
-            final double rowMg = avgMg;
-            row.setClickable(true);
-            row.setOnClickListener(v -> {
-                if (Math.round(targetMg * 100) == Math.round(avgMg * 100)) return;
-                if (selectedRow[0] != null) selectedRow[0].setBackground(round(card2, 18));
-                if (selectedRow[0] != null) selectedRow[0].setTextColor(ink);
-                row.setBackground(round(blue, 18));
-                row.setTextColor(Color.rgb(9, 9, 11));
-                selectedRow[0] = row;
-                selectedMg[0] = rowMg;
-                if (activateBtn[0] != null) {
-                    activateBtn[0].setEnabled(true);
-                    activateBtn[0].setBackground(round(accent, 28));
-                    activateBtn[0].setTextColor(Color.rgb(4, 23, 14));
-                }
-            });
-
-            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, -2);
-            rlp.setMargins(0, dp(6), 0, 0);
-            list.addView(row, rlp);
-        }
-
-        scroll.addView(list);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, dp(320));
-        slp.setMargins(0, dp(10), 0, dp(10));
-        box.addView(scroll, slp);
-
-        Button activate = pillButton(tr("activate_plan"), track, muted);
-        activate.setEnabled(false);
-        activateBtn[0] = activate;
-        box.addView(activate, new LinearLayout.LayoutParams(-1, dp(52)));
-
-        AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
-            .setView(box)
-            .setNegativeButton(tr("close"), null)
-            .create();
-
-        activate.setOnClickListener(v -> {
-            if (selectedMg[0] < 0) return;
-            double oldMg = targetMg;
-            targetMg = selectedMg[0];
-            recomputeTarget(); savePrefs(); refreshUi();
-            logEvent("PLAN", String.format(Locale.US, "%.2f mg -> %.2f mg (%d clicks)", oldMg, targetMg, targetClicks));
-            // Update alle Zeilen: Haken zum neuen Plan, alten entfernen
-            for (int i = 0; i < list.getChildCount(); i++) {
-                View child = list.getChildAt(i);
-                if (!(child instanceof TextView)) continue;
-                TextView tv = (TextView) child;
-                Object[] tag = (Object[]) tv.getTag();
-                double rowMg = (Double) tag[0];
-                String rowLabel = (String) tag[1];
-                boolean isNow = (Math.round(targetMg * 100) == Math.round(rowMg * 100));
-                tv.setBackground(round(isNow ? accent : card2, 18));
-                tv.setTextColor(isNow ? Color.rgb(4, 23, 14) : ink);
-                tv.setTypeface(null, isNow ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
-                tv.setText((isNow ? "✓  " : "     ") + rowLabel);
-            }
-            activate.setEnabled(false);
-            activate.setBackground(round(track, 28));
-            activate.setTextColor(muted);
-            selectedMg[0] = -1;
-            if (selectedRow[0] != null) selectedRow[0] = null;
-        });
-
-        if (dlg.getWindow() != null) dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-        dlg.show();
-        if (dlg.getWindow() != null) dlg.getWindow().setLayout(-1, -2);
-    }
-
-
     private void showHistoryDialog() {
         LinearLayout box = dialogBox();
         box.addView(text(tr("history_title"), 24, ink, true));
@@ -817,6 +735,15 @@ public class MainActivity extends Activity {
         return card;
     }
 
+    /**
+     * Reconciles the pen endpoint against ClickPlan's internal model.
+     *
+     * WHY this exists:
+     *   Physical pens vary slightly in total click count. ClickPlan's calculated remaining
+     *   clicks may not match reality when the pen physically stops. Rather than showing an
+     *   error, the app silently adjusts to zero and logs the discrepancy. This is normal
+     *   behaviour — the pen endpoint is always the truth (Principle 5).
+     */
     private void markPenEmpty() {
         int expected = remainingClicks;
         if (expected <= 0) {
@@ -1089,7 +1016,16 @@ public class MainActivity extends Activity {
     private void startAudioIfNeeded(){ if(audioActive)return; audioActive=true; audioThread=new Thread(this::audioLoop,"ClickPlanAudio"); audioThread.start(); }
     private void stopAudio(){ audioActive=false; uiHandler.removeCallbacks(measureDoneRunnable); }
     private void onMeasurePause(){ if(mode==Mode.MEASURE_FULL&&count>0&&fullPrimaryButton!=null){ fullPrimaryButton.setBackground(round(accent,28)); fullPrimaryButton.setTextColor(Color.rgb(4,23,14)); fullPrimaryButton.setText(tr("done")); } }
-    private void recomputeTarget(){ targetClicks=(int)Math.round(fullClickDoses*targetMg/Math.max(0.001,strengthMg)); if(targetClicks<1)targetClicks=1; }
+    /**
+     * Derives targetClicks from targetMg proportionally to the full-dose click count.
+     * Formula: clicks = fullClickDoses × (targetMg / strengthMg)
+     * WHY: clicks are the authoritative unit. mg is only stored as context; the actual
+     * injection is controlled by click count, not by a measured volume.
+     */
+    private void recomputeTarget() {
+        targetClicks = (int) Math.round(fullClickDoses * targetMg / Math.max(0.001, strengthMg));
+        if (targetClicks < 1) targetClicks = 1;
+    }
     private void recomputeThreshold(){ threshold=Math.max(calibratedClickPeak*thresholdFactor, noiseAvgJump*9.0+450.0); }
     private double median(ArrayList<Double> v){ if(v.isEmpty())return 0; ArrayList<Double> c=new ArrayList<>(v); Collections.sort(c); return c.get(c.size()/2); }
 
@@ -1208,10 +1144,7 @@ public class MainActivity extends Activity {
                 case "remaining_hint": return "Remaining clicks";
                 case "current_rest": return "Current remaining";
                 case "save": return "Save";
-                case "planner_title": return "Dose split plans";
-                case "planner_hint": return "Remainder-free splits calculated from your pen. Not a medical recommendation.";
                 case "weeks": return "weeks";
-                case "clicks_per_week": return "clicks/week";
                 case "stop_counting": return "Stop counting";
                 case "save_dose": return "Save dose";
                 case "clicks_to_goal": return "clicks to go";
@@ -1235,10 +1168,6 @@ public class MainActivity extends Activity {
                 case "pen_name_label": return "Pen name";
                 case "pen_name_hint": return "e.g. My Pen";
                 case "my_pen": return "My Pen";
-                case "plan_confirm_title": return "Activate plan?";
-                case "plan_confirm_msg": return "Set target to %d clicks · %.2f mg per dose?\nThis takes effect from the next dose.";
-                case "activate_plan": return "Activate";
-                case "plan_activated_toast": return "Plan activated: %d clicks per dose";
                 case "rest_change_warning": return "⚠ Only change this if you are correcting an error.";
                 case "plan": return "Plan";
                 case "close": return "Close";
@@ -1343,10 +1272,7 @@ public class MainActivity extends Activity {
                 case "remaining_hint": return "Restklicks im Pen";
                 case "current_rest": return "Aktueller Rest";
                 case "save": return "Speichern";
-                case "planner_title": return "Restfrei-Vorschläge";
-                case "planner_hint": return "Rechnerisch, keine medizinische Empfehlung.";
                 case "weeks": return "Wochen";
-                case "clicks_per_week": return "Klicks/Woche";
                 case "stop_counting": return "Zählen stoppen";
                 case "save_dose": return "Dosis speichern";
                 case "clicks_to_goal": return "Klicks bis Ziel";
@@ -1370,10 +1296,6 @@ public class MainActivity extends Activity {
                 case "pen_name_label": return "Pen-Name";
                 case "pen_name_hint": return "z.B. Mein Pen";
                 case "my_pen": return "Mein Pen";
-                case "plan_confirm_title": return "Plan aktivieren?";
-                case "plan_confirm_msg": return "Ziel auf %d Klicks · %.2f mg pro Dosis setzen?\nGilt ab der nächsten Dosis.";
-                case "activate_plan": return "Aktivieren";
-                case "plan_activated_toast": return "Plan aktiviert: %d Klicks pro Dosis";
                 case "rest_change_warning": return "⚠ Nur ändern wenn du einen Fehler korrigierst.";
                 case "plan": return "Plan";
                 case "close": return "Schliessen";
