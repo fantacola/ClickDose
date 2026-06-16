@@ -479,7 +479,7 @@ public class MainActivity extends Activity {
         box.addView(clicksHint2);
         box.addView(labelled(tr("current_rest"), rest)); box.addView(restWarning);
         new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar).setView(box)
-                .setPositiveButton(tr("save"), (d,w)->{ penName=name.getText().toString().trim(); strengthMg=readDouble(strength,strengthMg); dosesPerPen=Math.max(1,readInt(doses,dosesPerPen)); fullClickDoses=Math.max(1,readInt(full,fullClickDoses)); int max=fullClickDoses*dosesPerPen; remainingClicks=Math.max(0,Math.min(max,readInt(rest,remainingClicks))); recomputeTarget(); savePrefs(); refreshUi(); buildHomeUi(); refreshUi(); })
+                .setPositiveButton(tr("save"), (d,w)->{ penName=name.getText().toString().trim(); strengthMg=readDouble(strength,strengthMg); dosesPerPen=Math.max(1,readInt(doses,dosesPerPen)); fullClickDoses=Math.max(1,readInt(full,fullClickDoses)); int max=fullClickDoses*dosesPerPen; remainingClicks=Math.max(0,Math.min(max,readInt(rest,remainingClicks))); if(currentPlanClicks>fullClickDoses) currentPlanClicks=fullClickDoses; recomputeTarget(); savePrefs(); refreshUi(); buildHomeUi(); refreshUi(); })
                 .setNegativeButton(tr("cancel"), null).show();
     }
 
@@ -1013,6 +1013,7 @@ public class MainActivity extends Activity {
             + "|" + (fullClickDoses * dosesPerPen)
             + "\n";
         remainingClicks = restAfter;
+        trimHistory();
         count = 0; targetReachedBuzzed = false; mode = Mode.IDLE; stopAudio(); savePrefs();
         getSharedPreferences(PREF, MODE_PRIVATE).edit().putInt("countInProgress", -1).apply();
     }
@@ -1021,7 +1022,21 @@ public class MainActivity extends Activity {
         java.text.SimpleDateFormat df = new java.text.SimpleDateFormat("yyyy-MM-dd|HH:mm", Locale.getDefault());
         String stamp = df.format(new java.util.Date());
         injectionHistory = (injectionHistory == null ? "" : injectionHistory) + stamp + "|EVENT|" + type + "|" + detail + "\n";
+        trimHistory();
         savePrefs();
+    }
+
+    // WHY: SharedPreferences is not designed for unbounded strings. Cap at 200 rows
+    // (~4 years of weekly injections) to keep read/write fast and prevent ANRs.
+    private void trimHistory() {
+        if (injectionHistory == null) return;
+        String[] rows = injectionHistory.split("\\n");
+        if (rows.length <= 200) return;
+        StringBuilder sb = new StringBuilder();
+        for (int i = rows.length - 200; i < rows.length; i++) {
+            if (!rows[i].isEmpty()) sb.append(rows[i]).append('\n');
+        }
+        injectionHistory = sb.toString();
     }
 
     private String lastDoseText() {
@@ -1412,6 +1427,25 @@ public class MainActivity extends Activity {
     private int readInt(EditText e,int f){ try{return (int)Math.round(Double.parseDouble(e.getText().toString().replace(',','.')));}catch(Exception x){return f;} }
     private void loadPrefs(){ SharedPreferences p=getSharedPreferences(PREF,MODE_PRIVATE); drugName=p.getString("drugName",""); strengthMg=Double.longBitsToDouble(p.getLong("strength",Double.doubleToLongBits(2.4))); dosesPerPen=p.getInt("doses",4); fullClickDoses=p.getInt("fullClicks",74); remainingClicks=p.getInt("remaining",fullClickDoses*dosesPerPen); targetMg=Double.longBitsToDouble(p.getLong("target",Double.doubleToLongBits(1.2))); targetClicks=p.getInt("targetClicks",37); penNumber=p.getInt("penNumber",1); currentPlanClicks=p.getInt("currentPlanClicks",targetClicks); targetPlanClicks=p.getInt("targetPlanClicks",1); planActive=p.getBoolean("planActive",false); try { planMode=PlanMode.valueOf(p.getString("planMode",PlanMode.KEEP_CURRENT.name())); } catch(Exception ignored){ planMode=PlanMode.KEEP_CURRENT; } thresholdFactor=Double.longBitsToDouble(p.getLong("factor",Double.doubleToLongBits(0.38))); noiseAvgJump=Double.longBitsToDouble(p.getLong("noise",Double.doubleToLongBits(180.0))); calibratedClickPeak=Double.longBitsToDouble(p.getLong("clickPeak",Double.doubleToLongBits(2600.0))); cooldownMs=p.getInt("cooldown",80); language=p.getString("language","en"); penName=p.getString("penName",""); injectionHistory=p.getString("history",""); }
     private void savePrefs(){ getSharedPreferences(PREF,MODE_PRIVATE).edit().putString("drugName",drugName).putLong("strength",Double.doubleToLongBits(strengthMg)).putInt("doses",dosesPerPen).putInt("fullClicks",fullClickDoses).putInt("remaining",remainingClicks).putLong("target",Double.doubleToLongBits(targetMg)).putInt("targetClicks",targetClicks).putInt("penNumber",penNumber).putInt("currentPlanClicks",currentPlanClicks).putInt("targetPlanClicks",targetPlanClicks).putBoolean("planActive",planActive).putString("planMode",planMode.name()).putLong("factor",Double.doubleToLongBits(thresholdFactor)).putLong("noise",Double.doubleToLongBits(noiseAvgJump)).putLong("clickPeak",Double.doubleToLongBits(calibratedClickPeak)).putInt("cooldown",cooldownMs).putString("language",language).putString("penName",penName).putString("history",injectionHistory).apply(); }
+    @Override protected void onPause() {
+        // WHY: release the microphone when going to background so other apps (phone calls,
+        // voice assistants) can access it. The count-in-progress is already persisted on
+        // every click, so nothing is lost.
+        stopAudio();
+        saveCountInProgress();
+        super.onPause();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        // Restart audio if we were in an active recording mode when the app was paused.
+        boolean needsAudio = mode == Mode.COUNTING
+            || mode == Mode.MEASURE_FULL
+            || mode == Mode.CALIBRATING_NOISE
+            || mode == Mode.CALIBRATING_CLICKS;
+        if (needsAudio) startAudioIfNeeded();
+    }
+
     @Override protected void onDestroy(){ audioActive=false; super.onDestroy(); }
 
     public class SegmentedRingView extends View {
