@@ -274,9 +274,7 @@ public class MainActivity extends Activity {
         AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
             .setView(box).setCancelable(false).create();
         dlgRef[0] = dlg;
-        dlg.show();
-        android.view.Window win = dlg.getWindow();
-        if (win != null) { win.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)); win.setLayout(-1, -2); }
+        showDialog(dlg);
     }
 
     private void buildHomeUi() {
@@ -603,9 +601,7 @@ public class MainActivity extends Activity {
         AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
             .setView(box).create();
         dlgRef[0] = dlg;
-        if (dlg.getWindow() != null) dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-        dlg.show();
-        if (dlg.getWindow() != null) dlg.getWindow().setLayout(-1, -2);
+        showDialog(dlg);
     }
 
     private void showLanguageDialog() {
@@ -731,9 +727,7 @@ public class MainActivity extends Activity {
         AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
             .setView(box).create();
         dlgRef[0] = dlg;
-        if (dlg.getWindow() != null) dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-        dlg.show();
-        if (dlg.getWindow() != null) dlg.getWindow().setLayout(-1, -2);
+        showDialog(dlg);
     }
 
     private LinearLayout optionCard(String title, String subtitle, int borderColor) {
@@ -843,9 +837,7 @@ public class MainActivity extends Activity {
             .setView(box).create();
         dlgRef[0] = dlg;
         close.setOnClickListener(v -> dlg.dismiss());
-        if (dlg.getWindow() != null) dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-        dlg.show();
-        if (dlg.getWindow() != null) dlg.getWindow().setLayout(-1, -2);
+        showDialog(dlg);
     }
 
     /** Settings → Plan: shows current dose and allows correcting a wrong pen-start choice. */
@@ -906,9 +898,7 @@ public class MainActivity extends Activity {
             .setView(box).create();
         dlgRef[0] = dlg;
         close.setOnClickListener(v -> dlg.dismiss());
-        if (dlg.getWindow() != null) dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-        dlg.show();
-        if (dlg.getWindow() != null) dlg.getWindow().setLayout(-1, -2);
+        showDialog(dlg);
     }
 
     private void refreshUi() {
@@ -1118,6 +1108,20 @@ public class MainActivity extends Activity {
 
     private void checkTargetFeedback(){ if(mode==Mode.COUNTING&&!targetReachedBuzzed&&count>=targetClicks){ targetReachedBuzzed=true; vibrate(count==targetClicks?180:420); } }
     private void vibrate(int ms){ try{ Vibrator v=(Vibrator)getSystemService(Context.VIBRATOR_SERVICE); if(v==null)return; if(Build.VERSION.SDK_INT>=26)v.vibrate(VibrationEffect.createOneShot(ms,VibrationEffect.DEFAULT_AMPLITUDE)); else v.vibrate(ms);}catch(Exception ignored){} }
+
+    // WHY Gravity.CENTER_VERTICAL: on tall phones, WRAP_CONTENT dialogs anchor to the top
+    // and leave the home screen visible below them. Centering gives proper modal feel.
+    private void showDialog(AlertDialog dlg) {
+        android.view.Window w = dlg.getWindow();
+        if (w != null) w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        dlg.show();
+        if (w != null) {
+            w.setLayout(-1, -2);
+            android.view.WindowManager.LayoutParams a = w.getAttributes();
+            a.gravity = Gravity.CENTER_VERTICAL;
+            w.setAttributes(a);
+        }
+    }
 
     private TextView text(String s,int sp,int color,boolean bold){ TextView t=new TextView(this); t.setText(s); t.setTextSize(sp); t.setTextColor(color); if(bold)t.setTypeface(Typeface.DEFAULT,Typeface.BOLD); t.setPadding(0,dp(3),0,dp(3)); return t; }
     private TextView statCard(String s){ TextView t=text(s,14,ink,true); t.setGravity(Gravity.CENTER); t.setBackground(round(card2,22)); return t; }
