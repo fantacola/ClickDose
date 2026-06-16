@@ -579,6 +579,21 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(-1, -2);
         fLp.setMargins(0, dp(8), 0, dp(4));
 
+        Button exportBtn = pillButton(tr("export_history"), Color.rgb(30,30,40), blue);
+        exportBtn.setTextSize(13);
+        exportBtn.setOnClickListener(v -> {
+            if (injectionHistory == null || injectionHistory.trim().isEmpty()) {
+                Toast.makeText(this, tr("history_empty"), Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String header = "# ClickPlan — " + penName + "\n# " + new java.util.Date() + "\n# date|time|pen|target|actual|mg|rest|total\n\n";
+            android.content.Intent share = new android.content.Intent(android.content.Intent.ACTION_SEND);
+            share.setType("text/plain");
+            share.putExtra(android.content.Intent.EXTRA_SUBJECT, "ClickPlan " + tr("history_title"));
+            share.putExtra(android.content.Intent.EXTRA_TEXT, header + injectionHistory);
+            startActivity(android.content.Intent.createChooser(share, tr("export_history")));
+        });
+
         Button clear = pillButton(tr("clear_history"), Color.rgb(50,20,20), Color.rgb(200,80,80));
         clear.setTextSize(13);
         clear.setOnClickListener(v -> new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
@@ -593,8 +608,10 @@ public class MainActivity extends Activity {
         Button close = pillButton(tr("close"), track, muted);
         close.setOnClickListener(v -> { if (dlgRef[0] != null) dlgRef[0].dismiss(); });
 
+        footer.addView(exportBtn, new LinearLayout.LayoutParams(0, dp(46), 1));
+        footer.addView(new Space(this), new LinearLayout.LayoutParams(dp(8), 1));
         footer.addView(clear, new LinearLayout.LayoutParams(0, dp(46), 1));
-        footer.addView(new Space(this), new LinearLayout.LayoutParams(dp(10), 1));
+        footer.addView(new Space(this), new LinearLayout.LayoutParams(dp(8), 1));
         footer.addView(close, new LinearLayout.LayoutParams(0, dp(46), 1));
         box.addView(footer, fLp);
 
@@ -1165,6 +1182,7 @@ public class MainActivity extends Activity {
                 case "history_empty": return "No saved doses yet.";
                 case "clear_history": return "Clear history";
                 case "history_cleared": return "History cleared";
+                case "export_history": return "Export";
                 case "cancel": return "Cancel";
                 case "more_title": return "More";
                 case "measure_full": return "Measure full-dose clicks";
@@ -1301,6 +1319,7 @@ public class MainActivity extends Activity {
                 case "history_empty": return "Noch keine gespeicherte Dosis.";
                 case "clear_history": return "Protokoll löschen";
                 case "history_cleared": return "Protokoll gelöscht";
+                case "export_history": return "Exportieren";
                 case "cancel": return "Abbrechen";
                 case "more_title": return "Mehr";
                 case "measure_full": return "Volldosis-Klicks messen";
