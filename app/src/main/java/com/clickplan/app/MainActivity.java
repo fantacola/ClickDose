@@ -624,6 +624,21 @@ public class MainActivity extends Activity {
     }
 
     private void confirmNewPen() {
+        // Guard: if the pen is at full capacity (no injections yet), the user might be
+        // triggering this by mistake. Show a warning so they can Back out.
+        if (planActive && remainingClicks >= fullClickDoses * dosesPerPen) {
+            new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
+                .setTitle(tr("new_pen_guard_title"))
+                .setMessage(tr("new_pen_guard_msg"))
+                .setPositiveButton(tr("new_pen_guard_yes"), (d, w) -> confirmNewPenSkipGuard())
+                .setNegativeButton(tr("back"), null)
+                .show();
+            return;
+        }
+        confirmNewPenSkipGuard();
+    }
+
+    private void confirmNewPenSkipGuard() {
         LinearLayout box = dialogBox();
         box.addView(text(tr("new_pen"), 24, ink, true));
         TextView sub = text(tr("new_pen_plan_question"), 14, muted, false);
@@ -833,7 +848,7 @@ public class MainActivity extends Activity {
         if (dlg.getWindow() != null) dlg.getWindow().setLayout(-1, -2);
     }
 
-    /** Settings → Plan: shows current plan mode. Placeholder for future plan controls. */
+    /** Settings → Plan: shows current dose and allows correcting a wrong pen-start choice. */
     private void showPlanSettingsDialog() {
         LinearLayout box = dialogBox();
         box.addView(text(tr("plan_settings_title"), 24, ink, true));
@@ -841,28 +856,55 @@ public class MainActivity extends Activity {
         sub.setPadding(0, dp(4), 0, dp(16));
         box.addView(sub);
 
-        // Current plan mode display
-        String currentModeLabel = planMode == PlanMode.REDUCE_TO_TARGET
-            ? tr("plan_reduce") : tr("plan_keep");
+        // Current target display
+        double mgPerClick = strengthMg / Math.max(1, fullClickDoses);
         LinearLayout modeRow = roundedBox(card2, 20, dp(16));
         modeRow.setOrientation(LinearLayout.VERTICAL);
-        modeRow.addView(text(tr("plan_current_mode"), 12, muted, true));
-        modeRow.addView(text(currentModeLabel, 16, ink, true));
+        modeRow.addView(text(tr("correct_dose_label"), 12, muted, true));
+        modeRow.addView(text(currentPlanClicks + " " + tr("clicks") + String.format(Locale.US, "  ·  ~%.2f mg", currentPlanClicks * mgPerClick), 18, ink, true));
         box.addView(modeRow, new LinearLayout.LayoutParams(-1, -2));
 
-        // Placeholder note
-        TextView note = text(tr("plan_settings_future"), 13, muted, false);
-        note.setPadding(0, dp(16), 0, dp(8));
-        box.addView(note);
+        // Dose correction section
+        TextView corrDesc = text(tr("correct_dose_desc"), 13, muted, false);
+        corrDesc.setPadding(0, dp(16), 0, dp(8));
+        box.addView(corrDesc);
+
+        EditText clicksInput = inputText(String.valueOf(currentPlanClicks), tr("correct_dose_hint"));
+        clicksInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        box.addView(clicksInput);
+
+        AlertDialog[] dlgRef = {null};
+
+        Button correctBtn = pillButton(tr("correct_dose_btn"), blue, ink);
+        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(-1, dp(52));
+        btnLp.setMargins(0, dp(10), 0, 0);
 
         Button close = pillButton(tr("close"), track, muted);
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-1, dp(50));
-        clp.setMargins(0, dp(16), 0, dp(4));
-        close.setOnClickListener(v -> {});  // replaced after dialog create
+        clp.setMargins(0, dp(10), 0, dp(4));
+
+        correctBtn.setOnClickListener(v -> {
+            try {
+                int newClicks = Integer.parseInt(clicksInput.getText().toString().trim());
+                if (newClicks < 1 || newClicks > fullClickDoses) {
+                    Toast.makeText(this, "1 – " + fullClickDoses, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                currentPlanClicks = newClicks;
+                targetClicks = newClicks;
+                targetMg = newClicks * mgPerClick;
+                planMode = (newClicks < fullClickDoses) ? PlanMode.REDUCE_TO_TARGET : PlanMode.KEEP_CURRENT;
+                savePrefs(); refreshUi();
+                if (dlgRef[0] != null) dlgRef[0].dismiss();
+            } catch (NumberFormatException ignored) {}
+        });
+
+        box.addView(correctBtn, btnLp);
         box.addView(close, clp);
 
         AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
             .setView(box).create();
+        dlgRef[0] = dlg;
         close.setOnClickListener(v -> dlg.dismiss());
         if (dlg.getWindow() != null) dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
         dlg.show();
@@ -1138,6 +1180,14 @@ public class MainActivity extends Activity {
                 case "plan_settings_desc": return "Your dose reduction plan";
                 case "plan_current_mode": return "CURRENT MODE";
                 case "plan_settings_future": return "Future: pause reduction, set target dose, or change pace — coming soon.";
+                case "correct_dose_title": return "Correct dose";
+                case "correct_dose_desc": return "Use this if you selected the wrong dose when starting this pen. Changes take effect immediately.";
+                case "correct_dose_label": return "CURRENT TARGET";
+                case "correct_dose_btn": return "Set dose →";
+                case "correct_dose_hint": return "clicks / week";
+                case "new_pen_guard_title": return "Pen not used yet";
+                case "new_pen_guard_msg": return "This pen has no injections logged yet. Are you sure you want to start a new pen?";
+                case "new_pen_guard_yes": return "Yes, new pen →";
 
                 case "doses_per_pen": return "Doses per pen";
                 case "clicks_per_dose": return "Clicks per full dose";
@@ -1266,6 +1316,14 @@ public class MainActivity extends Activity {
                 case "plan_settings_desc": return "Dein Dosisreduktionsplan";
                 case "plan_current_mode": return "AKTUELLER MODUS";
                 case "plan_settings_future": return "Demnächst: Reduktion pausieren, Zieldosis setzen oder Tempo ändern — kommt bald.";
+                case "correct_dose_title": return "Dosis korrigieren";
+                case "correct_dose_desc": return "Nutze das, wenn du beim Pen-Start die falsche Dosis gewählt hast. Die Änderung gilt sofort.";
+                case "correct_dose_label": return "AKTUELLES ZIEL";
+                case "correct_dose_btn": return "Dosis setzen →";
+                case "correct_dose_hint": return "Klicks / Woche";
+                case "new_pen_guard_title": return "Pen noch nicht benutzt";
+                case "new_pen_guard_msg": return "Für diesen Pen wurden noch keine Injektionen gespeichert. Bist du sicher, dass du einen neuen Pen starten möchtest?";
+                case "new_pen_guard_yes": return "Ja, neuer Pen →";
 
                 case "doses_per_pen": return "Dosen pro Pen";
                 case "clicks_per_dose": return "Klicks pro Volldosis";
