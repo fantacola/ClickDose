@@ -672,35 +672,38 @@ public class MainActivity extends Activity {
         }
         final int finalReduced = Math.max(targetPlanClicks, Math.max(1, reducedClicks));
 
-        // Default selection follows saved planMode
-        final boolean[] chooseReduce = { planMode == PlanMode.REDUCE_TO_TARGET };
-
-        LinearLayout keepCard = optionCard(
-            "○  " + tr("plan_keep"),
-            String.format(Locale.US, "%d " + tr("clicks") + "  ·  ~%.2f mg", currentPlanClicks, currentPlanClicks * mgPerClick),
-            accent);
-        LinearLayout reduceCard = optionCard(
-            "○  " + tr("plan_reduce"),
-            String.format(Locale.US, "%d " + tr("clicks") + "  ·  ~%.2f mg", finalReduced, finalReduced * mgPerClick),
-            blue);
-
-        // Apply initial selection visually
+        // Explicitly chosen dose, independent of whether it increases or decreases.
+        // Never silently optimise the prescribed target to consume a pen exactly.
+        final int[] selectedOption = {0}; // 0 keep, 1 suggested reduction, 2 custom
+        LinearLayout keepCard = optionCard("●  " + tr("plan_keep"),
+            String.format(Locale.US, "%d " + tr("clicks") + "  ·  ~%.2f mg", currentPlanClicks, currentPlanClicks * mgPerClick), accent);
+        LinearLayout reduceCard = optionCard("○  " + tr("plan_reduce"),
+            String.format(Locale.US, "%d " + tr("clicks") + "  ·  ~%.2f mg", finalReduced, finalReduced * mgPerClick), blue);
+        LinearLayout customCard = optionCard("○  " + tr("plan_custom"),
+            tr("plan_custom_desc"), blue);
+        EditText customInput = inputText(String.valueOf(currentPlanClicks), tr("correct_dose_hint"));
+        customInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        customInput.setVisibility(View.GONE);
         Runnable updateCards = () -> {
-            keepCard.getChildAt(0).setAlpha(chooseReduce[0] ? 0.5f : 1f);
-            ((TextView) keepCard.getChildAt(0)).setText((chooseReduce[0] ? "○  " : "●  ") + tr("plan_keep"));
-            keepCard.setBackground(round(chooseReduce[0] ? card2 : accent, 18));
-            ((TextView) reduceCard.getChildAt(0)).setText((chooseReduce[0] ? "●  " : "○  ") + tr("plan_reduce"));
-            reduceCard.setBackground(round(chooseReduce[0] ? blue : card2, 18));
+            LinearLayout[] cards = {keepCard, reduceCard, customCard};
+            String[] labels = {tr("plan_keep"), tr("plan_reduce"), tr("plan_custom")};
+            for (int i = 0; i < cards.length; i++) {
+                ((TextView) cards[i].getChildAt(0)).setText((selectedOption[0] == i ? "●  " : "○  ") + labels[i]);
+                cards[i].setBackground(round(selectedOption[0] == i ? (i == 0 ? accent : blue) : card2, 18));
+            }
+            customInput.setVisibility(selectedOption[0] == 2 ? View.VISIBLE : View.GONE);
         };
-        updateCards.run();
-
-        keepCard.setOnClickListener(v -> { chooseReduce[0] = false; updateCards.run(); });
-        reduceCard.setOnClickListener(v -> { chooseReduce[0] = true; updateCards.run(); });
-
+        keepCard.setOnClickListener(v -> { selectedOption[0] = 0; updateCards.run(); });
+        reduceCard.setOnClickListener(v -> { selectedOption[0] = 1; updateCards.run(); });
+        customCard.setOnClickListener(v -> { selectedOption[0] = 2; updateCards.run(); });
         LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
         cardLp.setMargins(0, 0, 0, dp(10));
         box.addView(keepCard, cardLp);
-        box.addView(reduceCard);
+        LinearLayout.LayoutParams reduceLp = new LinearLayout.LayoutParams(-1, -2);
+        reduceLp.setMargins(0, 0, 0, dp(10));
+        box.addView(reduceCard, reduceLp);
+        box.addView(customCard);
+        box.addView(customInput);
 
         // Back / Continue row
         LinearLayout btnRow = new LinearLayout(this);
@@ -715,18 +718,27 @@ public class MainActivity extends Activity {
 
         Button confirm = pillButton(tr("continue"), accent, Color.rgb(4, 23, 14));
         confirm.setOnClickListener(v -> {
+            int newClicks = currentPlanClicks;
+            if (selectedOption[0] == 1) newClicks = finalReduced;
+            if (selectedOption[0] == 2) {
+                try {
+                    newClicks = Integer.parseInt(customInput.getText().toString().trim());
+                } catch (NumberFormatException ex) {
+                    customInput.setError(tr("correct_dose_hint")); return;
+                }
+                if (newClicks < 1 || newClicks > fullClickDoses) {
+                    customInput.setError("1 – " + fullClickDoses); return;
+                }
+            }
+            int previousClicks = currentPlanClicks;
             if (dlgRef[0] != null) dlgRef[0].dismiss();
-            planMode = chooseReduce[0] ? PlanMode.REDUCE_TO_TARGET : PlanMode.KEEP_CURRENT;
+            planMode = PlanMode.KEEP_CURRENT;
             penNumber++;
             remainingClicks = fullClickDoses * dosesPerPen;
-            if (chooseReduce[0]) {
-                currentPlanClicks = finalReduced;
-                logEvent("NEW_PEN", "Pen #" + penNumber + " · reduce → " + currentPlanClicks + " clicks");
-            } else {
-                logEvent("NEW_PEN", "Pen #" + penNumber + " · keep " + currentPlanClicks + " clicks");
-            }
-            targetClicks = currentPlanClicks;
-            targetMg = targetClicks * mgPerClick;
+            currentPlanClicks = newClicks;
+            logEvent("NEW_PEN", "Pen #" + penNumber + " · " + previousClicks + " → " + newClicks + " clicks");
+            targetClicks = newClicks;
+            targetMg = newClicks * mgPerClick;
             planActive = true;
             savePrefs(); buildHomeUi(); refreshUi();
             new AlertDialog.Builder(this, android.R.style.Theme_Material_NoActionBar)
@@ -899,11 +911,13 @@ public class MainActivity extends Activity {
                     Toast.makeText(this, "1 – " + fullClickDoses, Toast.LENGTH_SHORT).show();
                     return;
                 }
+                int previousClicks = currentPlanClicks;
                 currentPlanClicks = newClicks;
                 targetClicks = newClicks;
                 targetMg = newClicks * mgPerClick;
-                planMode = (newClicks < fullClickDoses) ? PlanMode.REDUCE_TO_TARGET : PlanMode.KEEP_CURRENT;
-                savePrefs(); refreshUi();
+                planMode = PlanMode.KEEP_CURRENT;
+                if (newClicks != previousClicks) logEvent("DOSE_CHANGE", previousClicks + " → " + newClicks + " clicks");
+                savePrefs(); buildHomeUi(); refreshUi();
                 if (dlgRef[0] != null) dlgRef[0].dismiss();
             } catch (NumberFormatException ignored) {}
         });
@@ -1087,8 +1101,9 @@ public class MainActivity extends Activity {
      * injection is controlled by click count, not by a measured volume.
      */
     private void recomputeTarget() {
-        targetClicks = (int) Math.round(fullClickDoses * targetMg / Math.max(0.001, strengthMg));
-        if (targetClicks < 1) targetClicks = 1;
+        // Click target is authoritative; never change it through mg rounding.
+        targetClicks = Math.max(1, Math.min(fullClickDoses, currentPlanClicks));
+        targetMg = targetClicks * strengthMg / Math.max(1, fullClickDoses);
     }
     private void recomputeThreshold(){ threshold=Math.max(calibratedClickPeak*thresholdFactor, noiseAvgJump*9.0+450.0); }
     private double median(ArrayList<Double> v){ if(v.isEmpty())return 0; ArrayList<Double> c=new ArrayList<>(v); Collections.sort(c); return c.get(c.size()/2); }
@@ -1297,6 +1312,8 @@ public class MainActivity extends Activity {
                 case "new_pen_plan_question": return "How do you want to continue?";
                 case "plan_keep": return "Keep current dose";
                 case "plan_reduce": return "Reduce one step";
+                case "plan_custom": return "Set different dose";
+                case "plan_custom_desc": return "Increase or decrease the click target";
                 case "new_pen_start": return "Start new pen →";
                 case "pen_reached_stop": return "Pen reached stop";
                 case "pen_reached_stop_desc": return "Mark pen as empty if it stopped before expected";
@@ -1434,6 +1451,8 @@ public class MainActivity extends Activity {
                 case "new_pen_plan_question": return "Wie möchtest du weitermachen?";
                 case "plan_keep": return "Dosis beibehalten";
                 case "plan_reduce": return "Einen Schritt reduzieren";
+                case "plan_custom": return "Andere Dosis einstellen";
+                case "plan_custom_desc": return "Klickziel erhöhen oder reduzieren";
                 case "new_pen_start": return "Neuen Pen starten →";
                 case "pen_reached_stop": return "Pen am Anschlag";
                 case "pen_reached_stop_desc": return "Pen als leer markieren, wenn er vor dem erwarteten Ende stoppt";
